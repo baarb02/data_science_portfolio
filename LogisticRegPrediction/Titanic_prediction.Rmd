@@ -5,7 +5,11 @@ author:
 date: "Last edited: `r Sys.Date()`"
 output:
   html_document:
-    css: styles.css
+      number_sections: no
+      theme: united
+      highlight: espresso
+      df_print: paged
+geometry: margin=1in
 ---
 
 # Titanic prediction: Predicting Titanic survival on Logistic Regression Models

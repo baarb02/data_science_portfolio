@@ -1,0 +1,454 @@
+---
+title: "Assignment 3 (A3) - Diagnosing Schizophrenia from Voice"
+output:
+  html_document:
+    number_sections: no
+    highlight: espresso
+    theme: united
+  pdf_document: default
+geometry: margin=1in
+knit: (function(input, encoding) { rmarkdown::render(input, encoding = encoding, output_dir = "../documents") })
+---
+
+> Study group members:
+>
+> - Barbora Ferusová (202207346@post.au.dk) [BF]
+> - Daniel Lundgaard (202004134@post.au.dk) [DL]
+> - Kenny Truong (202204363@post.au.dk) [KT]
+> - Matilda Rhys-Kristensen (202204611@post.au.dk) [MK]
+> - Samuel Vinter (202206734@post.au.dk) [SV]
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+pacman::p_load(
+  tidyverse,
+  readr,
+  modelsummary,
+  gridExtra,
+  scales,
+  knitr
+)
+
+theme_set(theme_minimal())
+```
+
+This assignment is based on the following paper:
+
+[Parola A et al. 2023. Voice Patterns as Markers of Schizophrenia: Building a Cumulative Generalizable Approach Via a Cross-Linguistic and Meta-analysis Based Investigation. Schizophrenia Bulletin 22(49):S125-S141.](https://doi.org/10.1093/schbul/sbac128)
+
+Individuals with schizophrenia (SCZ) tend to present voice atypicalities. Their tone is described as "inappropriate" voice, sometimes monotone, sometimes croaky. This is important for two reasons. First, voice could constitute a direct window into cognitive, emotional, and social components of the disorder, thus providing a cheap and relatively non-invasive way to support the diagnostic and assessment process (via automated analyses). Secondly, voice atypicalities play an important role in the social impairment experienced by individuals with SCZ, and are thought to generate negative social judgments (of unengaged, slow, unpleasant interlocutors), which can cascade in more negative and less frequent social interactions.
+
+While several studies show significant differences in acoustic features by diagnosis, we want to know whether we can diagnose SCZ in participants only from knowing the features of their voice. To that end, the authors collected data from various relevant studies. The latter focused on analyzing voice recordings from people that just got a first diagnosis of schizophrenia, along with a 1:1 case-control sample of participants with matching gender, age, and education. Each participant watched several videos (here called trials) of triangles moving across the screen and had to describe them, so you have several recordings per person. Along with these files, pitch was recorded once every 10 milliseconds for each participant and various duration-related statistics were also collected (e.g. number of pauses). For the purpose of this assignment, studies conducted in languages other than Danish were filtered out.
+
+Your main task for this assignment will be to replicate this research project through the design, fit, and reporting of unsupervised learning methods. More precisely, this assignment will consist in:
+
+  1. Collecting and cleaning the project data
+  2. Understanding the data using descriptive statistics
+  3. Predicting diagnosis using supervised learning procedures
+  4. Discussion on the methods and the results
+
+The following sections will address these objectives in order. You can complete each section in the way that best fits you. However, we remind you that proceeding methodically by segmenting your code in multiple, thematically-organised code chunks will greatly help you mane the whole modeling procedure.
+
+# Collecting and cleaning the project data
+
+There are two different data sets for this assignment:
+
+[BF]
+
+1. **articulation_data.txt**. This file contains all duration-related data collected from the participants to the different studies included in the project. Here is a short description of its linguistic variables.
+
+  - *nsyll:* number of syllables automatically inferred from the audio
+  - *npause:* number of pauses automatically inferred from the audio (absence of human voice longer than 200 milliseconds)
+  - *dur (s):* duration (in seconds) of the full recording
+  - *phonationtime (s):* duration (in seconds) of the recording where speech is present
+  - *speechrate (nsyll/dur):* average number of syllables per second
+  - *articulation rate (nsyll/phonationtime):* average number of syllables per second where speech is present
+
+```{r import_articulation_data}
+articulation <- read_tsv("../data/articulation_data.tsv") %>% rename(Study = study, ID = id, Diagnosis = diagnosis, Trial = trial)
+articulation
+```
+
+[DL]
+
+2. **pitch_data.txt**. Aggregated pitch data collected from the participants to the different studies included in the project. Fundamental pitch frequency was recorded for each participant every 10 milliseconds (excluding pauses) and aggregated at the participant trial level with the use of various centrality and dispersion measures. While most column names are self-explanatory, the following might be hard to figure out:
+
+  - *iqr:* Interquartile range
+  - *mad:* Mean absolute deviation
+  - *coefvar:* Coefficient of variation
+
+```{r import_pitch_data}
+pitch <- read_tsv("../data/pitch_data.tsv")
+pitch
+```
+
+After importing the data sets, make sure all common columns and values are named accordingly. Finally, merge the data sets on the appropriate columns, rename columns and values to your liking, and save the resulting data set using a file name and path of your own choosing.
+
+[KT]
+
+```{r merge_and_save}
+dataset <- left_join(articulation, pitch, by = c("Study", "Trial", "ID", "Diagnosis")) %>% 
+  rename(
+    rate_of_speech = "speech_rate (n_syllables/duration)",
+    rate_of_articulation = "articulation_rate (n_syllables/phonation_duration)",
+    mean_pause_duration = average_pause_duration,
+    pitch_mean = mean,
+    pitch_sd = sd,
+    pitch_min = min,
+    pitch_max = max,
+    pitch_median = median,
+    pitch_iqr = iqr,
+    pitch_mad = mad,
+    pitch_CV = coefvar
+  ) %>%
+  mutate_at(c("Study", "Trial", "ID"), factor) %>% 
+  mutate(
+    Diagnosis = factor(Diagnosis, levels = c("schizophrenia", "control")),
+    ID = paste0(ID, Diagnosis), 
+    mean_pause_duration = replace_na(mean_pause_duration, mean(mean_pause_duration, na.rm = TRUE)),
+    n_pauses = replace_na(n_pauses, median(n_pauses, na.rm = TRUE))
+  )
+
+dataset
+write_tsv(dataset, "../data/dataset_clean.tsv")
+```
+
+# Understanding the sample using descriptive statistics
+
+In this section, use whatever statistical procedures you think relevant to get a good understanding of the data set, particularly as regards to the differences between linguistic markers of neurotypical and schizophrenic speech. Here as in the following sections, make sure that we understand what you're doing and why you're doing it (you can do this by adding text right before or after the corresponding chunk of code).
+
+[MK]
+
+Here are some of the things you can do:
+  - Describe the data set (number of studies, number of participants, age, gender, clinical and cognitive features of the two groups) and assess whether the groups (schizophrenia and controls) are balanced.
+  
+>The groups seem reasonably balanced across diagnoses, though controls are slightly overrepresented.
+  
+```{r metadata_summary}
+datasummary(
+  data = dataset, 
+  formula = Diagnosis * Study ~ (N + Percent()), 
+  type = "categorical",
+  output = "data.frame",
+  fmt = fmt_sprintf("%.1f")
+) %>% rename(Proportion = Percent)
+```
+[SV]
+
+  - Describe the acoustic profile of a schizophrenic voice: which features are different? E.g. People with schizophrenia tend to have high-pitched voice. 
+  
+> A number of features seem to differ between the groups, though large amounts of within-group deviation makes it hard to assess whether these disparities are due to noise. `rate_of_speech` and. rate_of_articulation`, seem promising, both having low coefficients of variance and disparity in mean values.
+
+```{r summarize_dataset}
+coefvar <- function(vals) sd(vals, na.rm = TRUE) / mean(vals, na.rm = TRUE)
+
+datasummary(
+  data = dataset, 
+  formula = All(dataset) * Diagnosis ~ (mean + sd + coefvar), 
+  type = "categorical",
+  output = "data.frame",
+  fmt = fmt_sprintf("%.1f")
+)
+```
+
+# Predicting diagnosis using supervised learning procedures
+
+We now want to know whether we can automatically diagnose schizophrenia from voice alone. To do this, we will proceed in incremental fashion. We will first start by building a simple random forest model, add an optimized version, and then add a third model based on an algorithm of your choice. Once again, we ask that you connect the different code chunks you create with short descriptive/explanatory text segments that gives us an idea about what you are doing and why you are doing it.
+
+The following packages will be useful to you here:
+
+  - [**tidymodels**](https://tidymodels.tidymodels.org/): “meta-package” for modeling and statistical analysis that shares the underlying design philosophy, grammar, and data structures of the tidyverse.
+  - [**rsample**](https://rsample.tidymodels.org/): as infrastructure for resampling data so that models can be assessed and empirically validated.
+  -[**groupdata2**][(https://cran.r-project.org/web/packages/groupdata2/vignettes/introduction_to_groupdata2.html)]: an alternative to rsample that allows resampling with deeper grouping
+  - [**tune**](https://tune.tidymodels.org/): contains the functions to optimize model hyper-parameters.
+  - [**dials**](https://dials.tidymodels.org/): tools to create and manage values of tuning parameters.
+  - [**recipes**](https://recipes.tidymodels.org/index.html): a general data preprocessor that can create model matrices incorporating feature engineering, imputation, and other tools.
+  - [**workflows**](https://workflows.tidymodels.org/): methods to combine pre-processing steps and models into a single object.
+  - [**workflowsets**](https://workflowsets.tidymodels.org/): can create a workflow set that holds multiple workflow objects, allowing users to create and easily fit a large number of models. 
+  - [**parsnip**](https://parsnip.tidymodels.org/): a tidy, unified interface to creating models 
+  - [**yardstick**](https://yardstick.tidymodels.org/): contains tools for evaluating models
+  
+```{r load_additional_packages}
+pacman::p_load(
+  tidymodels,
+  rsample,
+  parsnip,
+  randomForest,
+  kernlab,
+  yardstick,
+  recipes,
+  workflows,
+  vip
+)
+```
+
+Finally, here are some online resources that can help you with the modeling process:
+
+  - This [**Tidymodels tutorial**](https://www.tidymodels.org/start/) written by the Tidymodels team
+  - This [**workshop on Tidymodels**](https://workshops.tidymodels.org/) written by the Tidymodels team
+  - This [**workshop on Tidymodels**](https://apreshill.github.io/tidymodels-it/) written by the Posit Team (The company behind RStudio)
+  - This [**online course on supervised machine learning**](https://supervised-ml-course.netlify.app/) written by the Tidymodels team
+
+## First phase: Random Forest Model
+
+In this phase, you will build a simple random forest model, by:
+
+[BF]
+
+  - Splitting the data in training and testing sets
+
+```{r}
+dataset_split <- initial_split(
+  dataset, 
+  prop = 0.7,
+  strata = Diagnosis
+)
+
+training(dataset_split)
+```  
+
+[DL]
+
+  - Training a random forest model on the training set
+```{r}
+modelling_recipe <- recipe(Diagnosis ~ ., data = training(dataset_split)) %>% 
+  update_role(ID, new_role = "Participant ID") %>% 
+  update_role(Study, Trial, new_role = "Metadata") %>% 
+  update_role(pitch_median, pitch_mad, pitch_sd, pitch_iqr, new_role = "Collinear") # eliminating a number of multicollinear features
+
+rf_workflow <- workflow() %>% 
+  add_model(rand_forest(mode = "classification", engine = "randomForest")) %>% 
+  add_recipe(modelling_recipe)
+
+rf_fit <- rf_workflow %>% fit(training(dataset_split))
+rf_fit
+```
+
+[KT]
+
+  - Testing the model's predictions on the testing set
+  
+```{r}
+predicted <- testing(dataset_split) %>%
+  mutate(
+    Predicted = predict(rf_fit, new_data = testing(dataset_split))$.pred_class,
+    Prob_Control = predict(rf_fit, new_data = testing(dataset_split), type = "prob")$.pred_control %>% round(2)
+  )
+predicted %>% select(Diagnosis, Predicted, Prob_Control)
+```
+
+[MK]
+
+  - Building the confusion matrix
+  
+```{r}
+conf_mat(
+  predicted, 
+  truth = Diagnosis, 
+  estimate = Predicted
+)
+```
+  
+[SV]
+
+  - Compiling performance metrics of your own choosing.
+  
+```{r}
+selected_performance_metrics <- metric_set(accuracy, sens, spec, mcc, roc_auc, pr_auc)
+
+selected_performance_metrics(
+  predicted, 
+  truth = Diagnosis, 
+  estimate = Predicted,
+  Prob_Control
+) %>% 
+  select(c(.metric, .estimate)) %>% 
+  column_to_rownames(".metric") %>% 
+  round(2)
+```
+
+```{r}
+rf_fit %>% extract_fit_parsnip() %>% vip(num_features = ncol(dataset_split) - 1)
+```
+
+## Second phase: Forest Engineering
+
+In this section, you will try to optimize the performance of the model developed in the previous phase by adding a new random forest model, upgraded with feature engineering and parameter tuning procedures of your own choosing.
+
+[BF]
+
+```{r optimize_model}
+dataset_split <- initial_validation_split(
+  dataset, 
+  prop = c(0.7, 0.15),
+  strata = Diagnosis
+)
+
+modelling_recipe <- modelling_recipe %>% 
+  step_normalize(all_numeric_predictors(), -starts_with("n_"), -all_outcomes()) %>% 
+  step_naomit(n_pauses)
+
+rf_workflow_tune <- workflow() %>% 
+  add_model(rand_forest(
+    mode = "classification", 
+    engine = "randomForest",
+    trees = tune(),
+    min_n = tune()
+  )) %>% 
+  add_recipe(modelling_recipe)
+
+tripartite_rf_results <- tune_grid(
+  rf_workflow_tune, 
+  vfold_cv(validation(dataset_split)), 
+  grid = grid_max_entropy(extract_parameter_set_dials(rf_workflow_tune), size = 10)
+)
+tripartite_rf_results %>% collect_metrics()
+```
+[DL]
+
+```{r}
+selected_fit <- last_fit(
+  finalize_workflow(rf_workflow_tune, select_best(tripartite_rf_results, "roc_auc")), 
+  dataset_split, 
+  add_validation_set = FALSE
+)
+
+predicted <- testing(dataset_split) %>%
+  mutate(
+    Predicted = collect_predictions(selected_fit, new_data = testing(dataset_split))$.pred_class,
+    Prob_Control = collect_predictions(selected_fit, new_data = testing(dataset_split), type = "prob")$.pred_control %>% 
+      round(2)
+  )
+```
+
+[KT]
+
+```{r}
+conf_mat(
+  predicted, 
+  truth = Diagnosis, 
+  estimate = Predicted
+)
+
+selected_performance_metrics(
+  predicted, 
+  truth = Diagnosis, 
+  estimate = Predicted,
+  Prob_Control
+) %>% 
+  select(c(.metric, .estimate)) %>% 
+  column_to_rownames(".metric") %>% 
+  round(2)
+```
+
+[MK]
+
+```{r}
+model_metrics <- bind_rows(
+selected_performance_metrics(
+    collect_predictions(last_fit(rf_workflow, dataset_split, add_validation_set = FALSE)), 
+    truth = Diagnosis, 
+    estimate = .pred_class, 
+    .pred_control
+  ) %>% mutate(model = factor("Default Random Forest")),
+selected_performance_metrics(
+    collect_predictions(selected_fit), 
+    truth = Diagnosis, 
+    estimate = .pred_class, 
+    .pred_control
+  ) %>% mutate(
+    model = factor("Hyperparameter tuning, normalization")
+  )
+) %>% 
+  mutate(.metric = factor(.metric, ordered = TRUE)) %>% 
+  select(!.estimator)
+
+model_metrics
+
+ggplot(model_metrics) +
+  geom_point(aes(.estimate, .metric, color = model), position = position_dodge(width = 0.4), size = 3) +
+  geom_linerange(aes(xmin = 0, xmax = .estimate, y = .metric, color = model), position = position_dodge(width = 0.4)) +
+  coord_cartesian(xlim = c(0, 1)) +
+  scale_y_discrete(
+    limits = rev(c("accuracy", "sens", "spec", "mcc", "roc_auc", "pr_auc")), 
+    labels = rev(c("Acc.", "Sens.", "Spec.", "MCC", "ROC AUC", "PR AUC"))
+  ) +
+  labs(title = "Model Performance Metric Evaluation", x = "", y = "Metric\n", ) +
+  theme(legend.position = "top", panel.grid.major.y = element_blank(), axis.title.y = element_text(angle=0, vjust=1)) +
+  guides(color = guide_legend(title = "Model"))
+```
+
+## Third phase: Another Algorithm
+
+For this final part, add a supervised algorithm to the workflow set and compare its performance to the previous ones. Here again, you are free to choose any algorithm, but it its important that we know what you're doing and why you are doing it. In other words, tell us a bit about the algorithm you're using and why you chose it.
+
+For a detailed list of the model types, engines, and arguments that can be used with the tidymodels framework, have a look here https://www.tidymodels.org/find/parsnip/#models
+
+[SV]
+
+```{r new_model}
+rf_workflow_svm <- workflow() %>% 
+  add_model(svm_poly(
+    mode = "classification", 
+    engine = "kernlab"
+  )) %>% 
+  add_recipe(modelling_recipe)
+
+rf_fit <- rf_workflow_svm %>% fit(training(dataset_split))
+
+model_metrics <- bind_rows(
+selected_performance_metrics(
+    collect_predictions(last_fit(rf_workflow, dataset_split, add_validation_set = FALSE)), 
+    truth = Diagnosis, 
+    estimate = .pred_class, 
+    .pred_control
+  ) %>% mutate(model = factor("Default Random Forest")),
+selected_performance_metrics(
+    collect_predictions(selected_fit), 
+    truth = Diagnosis, 
+    estimate = .pred_class, 
+    .pred_control
+  ) %>% mutate(
+    model = factor("Support Vector Machine")
+  )
+) %>% 
+  mutate(.metric = factor(.metric, ordered = TRUE)) %>% 
+  select(!.estimator)
+model_metrics
+
+ggplot(model_metrics) +
+  geom_point(aes(.estimate, .metric, color = model), position = position_dodge(width = 0.4), size = 3) +
+  geom_linerange(aes(xmin = 0, xmax = .estimate, y = .metric, color = model), position = position_dodge(width = 0.4)) +
+  coord_cartesian(xlim = c(0, 1)) +
+  scale_y_discrete(
+    limits = rev(c("accuracy", "sens", "spec", "mcc", "roc_auc", "pr_auc")), 
+    labels = rev(c("Acc.", "Sens.", "Spec.", "MCC", "ROC AUC", "PR AUC"))
+  ) +
+  labs(title = "Model Performance Metric Evaluation", x = "", y = "Metric\n", ) +
+  theme(legend.position = "top", panel.grid.major.y = element_blank(), axis.title.y = element_text(angle=0, vjust=1)) +
+  guides(color = guide_legend(title = "Model"))
+```
+
+# Discussion: Methodology and Results
+
+Finally, briefly summarize and discuss the methodological choices you've made throughout as well as the results obtained at the different modeling stages. In particular, I would like to get your input as regards to the following questions:
+
+- Based on the performance evaluation of your models, do you think the second and third phase of the third section were worth the extra effort? Was any model successful in diagnosing schizophrenia from voice?
+
+[BF]
+
+> The feature engineering and hyperparameter tuning did not seem to noticably improve the performance of the classfication model. In fact, when it marginally improves on the default model in one metric, e.g. sensitivity, it tends to sacrifice/worsen others. 
+> None of the models were particularly useful in a clinical context (at least as stand-alone tool), as they failed to improve more than moderately on the baseline accuracy of ~50%, with all models maxing out around 65%.
+
+- How do the predictive models you built relate to the descriptive analysis conducted in the second section?
+  
+[DL]
+
+> The actual baseline accuracy for this dataset might be 52.5%, as this is the accuracy that would be achieved if one just predicted "control" for all cases, although that would reveal itself in disparity between sensitivity and specificity.
+
+- What is the explanatory scope of the analyses and procedures you conducted here, if any?
+
+[KT]
+
+> One could make a cautious interpretation that trends in voice pitch should be ascribed greater weight than other more basic measures of articulation.

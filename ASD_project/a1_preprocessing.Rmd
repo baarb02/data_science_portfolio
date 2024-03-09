@@ -1,0 +1,115 @@
+---
+title: "ASD Project Data Cleaning"
+author: 
+  - Barbora Ferusová - (barbora.ferusova@gmail.com) 
+date: "Last edited: `r Sys.Date()`"
+output:
+  html_document:
+      number_sections: no
+      theme: united
+      highlight: espresso
+      df_print: paged
+geometry: margin=1in
+---
+
+# 1. Data Manipulation
+
+```{r setup}
+pacman::p_load(tidyverse, dplyr, nycflights13, ggplot2, stringr)
+knitr::opts_chunk$set(fig.width=4, fig.height=3)
+```
+
+```{r import_datasets, message = FALSE}
+demo_train <- read_csv("data/demo_train.csv")
+LU_train <- read_csv("data/LU_train.csv")
+word_data <- read_csv("data/token_train.csv")
+```
+
+**1. Renaming variables** 
+
+```{r rename_variables}
+colnames(demo_train)[colnames(demo_train) == "Child.ID"] <- "SUBJ"
+colnames(demo_train)[colnames(demo_train) == "Visit"] <- "VISIT"
+```
+
+**2. Renaming values** 
+Homogenizing the way 'visit' is reported among different datasets
+```{r extract_digits}
+LU_train$Visit_number <- as.integer(str_extract(LU_train$VISIT, "\\d+"))
+LU_train <- subset(LU_train, select = -VISIT)
+colnames(LU_train)[colnames(LU_train) == "Visit_number"] <- "VISIT"
+arrange(LU_train)
+
+word_data$Visit_number <- as.integer(str_extract(word_data$VISIT, "\\d+"))
+word_data <- subset(word_data, select = -VISIT)
+colnames(word_data)[colnames(word_data) == "Visit_number"] <- "VISIT"
+```
+A similar task needs to be done regarding the value names of the Child.ID variable in the demographic data set. The values of this variable that are not abbreviated do not end with "." (i.e. Adam), whereas they do in the other two data sets (i.e. Adam.). Key merges, that is, merging of data sets based on shared variables, can only be done is the latter have overlapping value names; if no identical value names can be found, nothing will be merged. 
+```{r remove_points}
+
+LU_train$SUBJ <- gsub("[^[:alnum:][:space:]]", "", LU_train$SUBJ)
+word_data$SUBJ <- gsub("[^[:alnum:][:space:]]", "", word_data$SUBJ)
+demo_train$SUBJ <- gsub("[^[:alnum:][:space:]]", "", demo_train$SUBJ)
+```
+
+**4. Data subsetting **
+
+This task consists in transforming the three data sets so as to keep only the variables that are of relevance for the project. 
+Here are the less intuitive ones among the ones listed:
+
+* *ADOS* (Autism Diagnostic Observation Schedule) indicates the severity of the autistic symptoms (the higher the score, the worse the symptoms). 
+* *MLU* stands for 'Mean Length of Utterance'
+* *types* stands for unique words. For example, the same word appearing multiple times only accounts for 1 word type.
+* *tokens* stands for overall amount of words. Each occurrence of any word is a token. This example will help better understand the type/token distinction: in the sentence "the horse is a horse, of course, of course", there are 9 tokens (9 words in all), but only 6 types (the, horse, is, a, of, course).
+* *MullenRaw* indicates non verbal IQ, as measured by the Mullen Scales of Early Learning (MSEL)
+* *ExpressiveLangRaw* indicates verbal IQ, as measured by MSEL
+* *Socialization* indicates social interaction skills and social responsiveness
+```{r rename_selected_variables}
+LU_train_selected <- LU_train %>% dplyr::select(SUBJ, VISIT, MOT_MLU, CHI_MLU)
+demo_train_selected <- demo_train %>% dplyr::select(SUBJ, VISIT, Diagnosis, Ethnicity, Gender, Age, ADOS, MullenRaw, ExpressiveLangRaw, Socialization)
+word_data_selected <- word_data %>% dplyr::select(SUBJ, VISIT, types_MOT, types_CHI, tokens_MOT, tokens_CHI)
+```
+
+**5. Data merge**
+
+Following completion of the previous cleaning procedures, the different data sets can now be merged into a single one.
+
+It is important here to check if merging the data sets:
+- has resulted in any loss of relevant data
+- has resulted in the creation of NAs within the merged data set. If this is so, it is important to understand why these NAs were created (e.g. some measures were not taken at all visits, some recordings were lost or permission to use was withdrawn).
+
+```{r merge_data}
+maindf <- list(demo_train_selected, LU_train_selected, word_data_selected)
+maindf <- maindf %>%  purrr::reduce(full_join, by=c("SUBJ","VISIT"))
+```
+
+**6. Data filtering**
+
+I would like to be able to predict the children's linguistic development after only having tested them once. Therefore I need to make sure that my *ADOS*, *MullenRaw*, *ExpressiveLangRaw* and *Socialization* variables are reporting (for all visits) only the scores from visit 1.
+
+```{r add_first_visit_variables}
+first_visit_df <- maindf %>% 
+  filter(VISIT == 1) %>% 
+  dplyr::select(SUBJ, ADOS, MullenRaw, ExpressiveLangRaw, Socialization)
+
+colnames(first_visit_df)[colnames(first_visit_df) == "ADOS"] <- "ADOS1"
+colnames(first_visit_df)[colnames(first_visit_df) == "MullenRaw"] <- "MullenRaw1"
+colnames(first_visit_df)[colnames(first_visit_df) == "ExpressiveLangRaw"] <- "ExpressiveLangRaw1"
+colnames(first_visit_df)[colnames(first_visit_df) == "Socialization"] <- "Socialization1"
+
+filtered_df <- list(maindf, first_visit_df)
+filtered_df <- filtered_df %>%  purrr::reduce(full_join, by=c("SUBJ"))
+```
+
+**7. Reverse Encoding**
+
+```{r revert_encoding}
+### Write your code here
+filtered_df$Gender[filtered_df$Gender == "1"] <- "M"
+filtered_df$Gender[filtered_df$Gender == "2"] <- "F"
+
+filtered_df$Diagnosis[filtered_df$Diagnosis == "A"] <- "ASD"
+filtered_df$Diagnosis[filtered_df$Diagnosis == "B"] <- "TD"
+```
+
+

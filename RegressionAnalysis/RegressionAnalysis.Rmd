@@ -1,0 +1,246 @@
+---
+title: "Methods 2 -- Portfolio Assignment 3"
+output:
+  html_document:
+      number_sections: no
+      theme: united
+      highlight: espresso
+      df_print: paged
+geometry: margin=1in
+---
+
+```{r, include=FALSE}
+pacman::p_load(tidyverse, dplyr,rstanarm, arm, rstantools, car)
+knitr::opts_chunk$set(fig.width=4, fig.height=3)
+options(mc.cores = parallel::detectCores())
+```
+
+## 1. Exercise 10.5
+
+*Regression modeling and prediction:* The folder `KidIQ` contains a subset of the children and mother data discussed earlier in the chapter. You have access to children's test scores at age 3, mother's education, and the mother's age at the time she gave birth for a sample of 400 children.
+
+```{r, include=FALSE}
+getwd()
+```
+
+```{r}
+#loading the data
+
+kid_iq <- read.csv("data/child_iq.csv")
+```
+
+(LD)
+### (a) Fit a regression of child test scores on mother's age, display the data and fitted model, check assumptions, and interpret the slope coefficient. Based on this analysis, when do you recommend mothers should give birth? What are you assuming in making this recommendation?
+
+```{r}
+#fitting and plotting the regression. 
+model1 <- stan_glm(ppvt ~ momage, data = kid_iq, refresh = 0)
+summary(model1, digits = 4)
+
+plot(kid_iq$momage, kid_iq$ppvt, xlab = "Mom age", ylab = "child test scores", main = "Child test scores based on mother's age")
+abline(model1, col = "red")
+
+```
+
+#### Interpreting the slope coefficient
+
+The slope coefficient for mothers age increases slightly positively, suggesting that there is a correlation between the age of the mother and how their childs test-score. The slope coefficient is 0.8451, indicating that the average test-scores increases by 0.8451 as the mothers ages increase each unit.
+
+Based on interpretation of the slope, the recommendation would be to give birth as late as possible. But it is important to note that the correlation does not necessarily imply causation, and there can be other factors which could influence the children test-scores.
+
+#### Checking assumption
+
+```{r}
+#checking for representativeness 
+par(mfrow=c(2,2))
+summary(kid_iq)
+densityPlot(kid_iq$ppvt)
+densityPlot(kid_iq$educ_cat)
+densityPlot(kid_iq$momage)
+
+
+```
+
+When looking at the density plots for test-score it looks like there is more children in the low end and then a few children that scored high on the test. In the education level density plot there is many moms with an education level at 2 and not a lot of moms with education level at 4, which might make sense when speaking about the general population. But this can make a skewed picture while there is not a lot of data in the rest of the education level. The last density plot shows mother's age, which have a limited range from 17-29 years. This can influence the results, while we dont know whether children from moms above 29 years perform better or worse in the test.
+
+```{r}
+#further check of assumptions
+resid <- residuals(model1)
+
+qqnorm(resid); qqline(resid)
+
+```
+
+```{r}
+#further check of assumptions
+ggplot(data = kid_iq, aes(x = predict(model1), y = resid(model1))) + 
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(x = "Fitted values", y = "Residuals") + 
+  ggtitle("Residuals vs. Fitted values")
+```
+
+When looking at the plot we can se that there is no outstanding outliers.The blue line should follow y = 0, which it does. And when checking for homoscedasticity it is spread nicely.
+
+### (b) Repeat this for a regression that further includes mother's education, interpreting both slope coefficients in this model. Have your conclusions about the timing of birth changed?
+
+```{r}
+#regression with mothers education
+model2 <- stan_glm(ppvt ~ momage + educ_cat, data = kid_iq, refresh = 0)
+summary(model2, digits = 4)
+
+plot(kid_iq$momage, kid_iq$ppvt, xlab = "Mom age", ylab = "child test scores", main = "Child test scores based on mother's age")
+abline(model1, col = "red")
+abline(model2, col = "blue")
+```
+
+The slope coefficient for mothers education level is 4.7, indicating a positive correlation with the scores. For each level in education, the childs test-score increases on average with 4.7, while the importance of the mothers age only have an increase with 0.8 on average with the test-scores. This indicate that education level has more influence on the childs test-score than the mothers age.
+
+(FREYA)
+### (c) Now create an indicator variable reflecting whether the mother has completed high school or not. Consider interactions between high school completion and mother's age. Also create a plot that shows the separate regression lines for each high school completion status group.
+
+```{r}
+#creating new column: whether mom completed high school or not
+kid_iq$mom_hs <- ifelse(kid_iq$educ_cat >= 2,1,0)
+kid_iq$mom_hs <- as.factor(kid_iq$mom_hs)
+
+#interaction between high school completion and mom age by using multiplication. 
+model3 <- stan_glm(ppvt ~ momage * mom_hs, data = kid_iq, refresh = 0)
+summary(model2, digits = 4)
+
+ggplot(kid_iq, aes(x = momage, y = ppvt, color = as.factor(mom_hs))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, linetype = "solid", aes(group = as.factor(mom_hs))) +
+  labs(x = "Mother's Age", y = "Child's IQ Score", color = "High School Completion") +
+  theme_minimal()
+```
+
+There is a difference in how age influence childs score depending on whether the mom completed highschool or not. If the mom completed high school there is a positive correlation between mome age and child test-score. If the mom didnt complete highschool there is a negative correlation between mom age and child test-score.
+
+### (d) Finally, fit a regression of child test scores on mother's age and education level for the first 200 children and use this model to predict test scores for the next 200. Graphically display comparisons of the predicted and actual scores for the final 200 children.
+
+```{r}
+#regression of actual scores
+actual_scores <- stan_glm(ppvt~ momage + educ_cat, data = kid_iq[1:200, ], refresh = 0)
+
+#predicted scores
+predicted_scores <- predict(actual_scores, kid_iq[201:400, ])
+predicted_scores
+
+#merge in a new dataframe
+comparison_data <- data.frame(actual_scores = kid_iq$ppvt[201:400], predicted_scores)
+
+#plotting the comparison 
+ggplot(comparison_data, aes(x = actual_scores, y = predicted_scores))+
+  geom_point(col = "blue")+
+  geom_abline(intercept = 0, slope = 1, col = "red")+
+  labs(title = "Actual vs. predictes scores", x = "Actual scores", y = "predicted scores")+
+   scale_x_continuous(limits = c(20, 150))+
+   scale_y_continuous(limits = c(20, 150))+
+  theme_bw()
+
+```
+
+The scores does not follow the regression line, indicating that the model is not a good prediction model.
+
+## 2. Exercise 10.6 (SV)
+
+*Regression models with interactions:* The folder `Beauty` contains data (use file `beauty.csv`) from Hamermesh and Parker (2005) on student evaluations of instructors' beauty and teaching quality for several courses at the University of Texas. The teaching evaluations were conducted at the end of the semester, and the beauty judgments were made later, by six students who had not attended the classes and were not aware of the course evaluations.
+
+### (a) Run a regression using beauty (the variable `beauty`) to predict course evaluations (`eval`), adjusting for various other predictors. Graph the data and fitted model, and explain the meaning of each of the coefficients along with the residual standard deviation. Plot the residuals versus fitted values.
+
+```{r}
+#import data
+beauty <- read_csv("data/beauty.csv")
+
+#model with no interactions but all the predictions
+m <- stan_glm(eval ~ beauty + female + age + minority + nonenglish + lower + course_id, data=beauty)
+print(m)
+```
+
+```{r}
+#plot
+ggplot(beauty, aes(x = beauty, y = eval)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "red") +
+  labs(x = "Beauty", y = "Course Evaluation")
+
+#residual
+resid <- resid(m)
+fitted <- fitted(m)
+plot(fitted, resid, xlab = "Fitted Values", ylab = "Residuals", main = "Residual Plot")
+abline(h = 0, lty = 2, col = "red")
+```
+
+We've ran a regression model for estimating `eval` based on `beauty` as well as all of the other possible predictors. \n The intercept coefficient for `eval` is 4.2, meaning that when all other predictors are constant, the expected course evaluation will be 4.2. \n The coefficient for `beauty` is 0.1, meaning that instructors who are rated as more beautiful (while keeping all other predictors constant) also get slightly better course evaluations. \n The coefficient for `lower` is also 0.1, meaning that lower-division course instructors tend to receive slightly better course evaluations (when all other predictors are constant). The coefficients for `female`, `minority` and `nonenglish` are -0.2, -0.1 and -0.3 respectively, meaning that while all other predictors are constant, female, minority and non-native English speaking instructors tend to receive worse course evaluations (conversely male instructors, native English speaking instructors and non-minority instructors tend to receive better course evaluations). \n `age` and `course_id` don't seem to have any effect on the course evaluations. \n The residual standard deviation/sigma value is 0.5, which means that the average deviation of the actual course evaluations from the regression estimates is 0.5. \n
+
+### (b) Fit some other models, including beauty and also other predictors. Consider at least one model with interactions. For each model, explain the meaning of each of its estimated coefficients.
+
+See also Felton, Mitchell, and Stinson (2003) for more on this topic.
+
+```{r include=TRUE, echo=FALSE}
+m1 <- stan_glm(eval ~ beauty + female + minority + nonenglish, data=beauty)
+m2 <- stan_glm(eval ~ beauty + female + nonenglish + age, data=beauty)
+m3 <- stan_glm(eval ~ beauty + female + minority + nonenglish + minority*nonenglish, data=beauty)
+m4 <- stan_glm(eval ~ beauty + female + minority + nonenglish + beauty*minority, data=beauty)
+m5 <- stan_glm(eval ~ beauty + minority*female, data=beauty)
+```
+
+```{r}
+print(m1)
+```
+
+```{r}
+print(m2)
+```
+
+```{r}
+print(m3)
+```
+
+```{r}
+print(m4)
+```
+
+```{r}
+print(m5)
+```
+
+We've ran 5 different regression models. The first one, `m1`, has `beauty`, `female`, `minority` and `nonenglish` as predictors. In this model, the coefficient for `beauty` is 0.2, meaning if all other predictors are constant (assuming they don't influence the beauty rating), instructors are likely to get higher course evaluations if they are also rated as more beautiful. The coefficient for `female` is -0.2, which means that if all other predictors here are constant, female instructors are more likely to get a worse course evaluation. Non-native English speakers are also likely to get a lower evaluation, the coefficient for `nonenglish` being -0.3. Whether the instructor belongs to a minority or not doesn't seem to influence the course evaluation. \n
+
+In the second model (`m2`), the predictors used were `beauty`, `female`, `nonenglish` and `age`. The coefficient for `beauty` is 0.1, meaning that while all other predictors here are constant, instructors rated as more beautiful are also likely to get a better course evaluation, though a slightly lower one than in the previous model. The coefficients for `female` and `nonenglish` were the same as the previous model. Age doesn't seem to influence the course evaluation in this model, the coefficient for `age` being 0.0. \n
+
+In the third model (`m3`), we used the same predictors as in the model `m1`, as well as an interaction between `minority` and `nonenglish`. The coefficients for `beauty`, `female` and `minority` are the same as in `m1`, but the coefficient for `nonenglish` is -0.2, meaning if all other predictors in this model are constant, non-native English speaking instructors are still likely to receive a worse evaluation, though not as bad as in the previous models. The coefficient for the interaction between `minority` and `nonenglish` has a coefficient of -0.1, which shows that instructors who are both non-native English speakers and belong to a minority (with all other predictors staying constant) are also likely to get a worse evaluation; interestingly, it would be worse than if the instructor was just a minority (but a native English speaker), but better than if they were just a non-native English speaker (but not a minority.) \n
+
+In the fourth model (`m4`), we had the same predictors as the model `m1`, plus an interaction between `beauty` and `minority`. The coefficients for `beauty`, `female` and `nonenglish` were the same as in the first model (`m1`), but the coefficient for `minority` was -0.1, which means that in this model, assuming all other predictors stay constant, minority instructors are likely to receive a worse evaluation than in the previous models. The coefficient for the interaction between `beauty` and `minority` was -0.2, which means that minorities who are also rated as beautiful are less likely to receive better course evaluations; interestingly, they receive worse evaluations than just minority instructors. \n
+
+In the fifth model (`m5`), we used only the predictors `beauty`, `minority` and `female`, as well as an interaction between `minority` and `female`. The coefficient for `beauty` was 0.2, the same as models `m1`, `m3` and `m4`. The coefficient for `female` was -0.1, instead of the -0.2 in the previous models, which means that if all the other predictors stay constant, in this model female instructors are likely to receive slightly less worse evaluations than in the previous model. The coefficient for `minority` was 0.1, which means that again, assuming other predictors stay constant, in this model minorities are more likely to receive better evaluations (than the previous models). The coefficient for the interaction between `minority` and `female` was -0.4, which means that female minority instructors are much more likely to receive a worse evaluation, and interestingly again, worse than if they were just female or just a minority.
+
+## 3. Exercise 10.7 (BF)
+
+*Predictive simulation for linear regression:* Take one of the models from the previous exercise.
+
+### (a) Instructor A is a 50-year-old woman who is a native English speaker and has a beauty score of -1. Instructor B is a 60-year-old man who is a native English speaker and has a beauty score of -0.5. Simulate 1000 random draws of the course evaluation rating of these two instructors. In your simulation, use posterior_predict to account for the uncertainty in the regression parameters as well as predictive uncertainty.
+
+```{r}
+# Creating 1000 random simulations for instructor A and B:
+instructor_a <- data.frame(beauty = -1, age = 50, female = 1, nonenglish = 0)
+instructor_b <- data.frame(beauty = -0.5, age = 60, female = 0, nonenglish = 0)
+
+sim_a <- posterior_predict(m2, newdata = instructor_a, n.sims = 1000)
+sim_b <- posterior_predict(m2, newdata = instructor_b, n.sims = 1000)
+```
+
+### (b) Make a histogram of the difference between the course evaluations for A and B. What is the probability that A will have a higher evaluation?
+
+```{r}
+# Histogram of the difference in simulated evaluations:
+diff_eval <- sim_a - sim_b
+hist(diff_eval, breaks = 20, main = 'Difference between course evaluations of Instructor A and B',
+     xlab = "Difference")
+# What is the probability that A will score higher:
+prob_A_higher <- sum(diff_eval > 0) / length(diff_eval)
+prob_A_higher
+```
+
+The probability that instructor A will have a higher course evaluation is roughly \~37%.
