@@ -14,6 +14,8 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(fig.width=4, fig.height=3)
 knitr::opts_chunk$set(echo = TRUE, awarning = FALSE, message = FALSE)
+knitr::opts_knit$set(root.dir = "/Users/barb/Documents/GitHub/data_science_portfolio/ASD_project/")
+
 
 pacman::p_load(
   tidyverse,
@@ -169,7 +171,7 @@ prior_fit <- brm(
   family = gaussian,
   prior = custom_priors,
   sample_prior = "only",
-  file = "../data/prior_fit1",
+  file = "data/prior_fit1",
   file_refit = "on_change",
   backend = "cmdstanr",
   chains = 2,
@@ -194,12 +196,13 @@ fit1 <- brm(
   family = gaussian,
   prior = custom_priors,
   backend = "cmdstanr",
-  file = "../data",
+  file = "data/model_fit1",
   file_refit = "on_change",
   chains = 2,
   stan_model_args = list(stanc_options = list("O1")),
   refresh = 0
 )
+
 
 fit1 %>% print(digits = 2)
 
@@ -233,19 +236,19 @@ custom_priors <- c(
 
 
 ```{r compare_models}
+# for faster processing we can use threads = threading(4), but at the time of writing this the machine does not like this argument
 fit2 <- brm(
   data = dataset_train,
   formula = model_formula,
   family = gaussian,
   prior = custom_priors,
   backend = "cmdstanr",
+  file = "data/model_fit2",
+  file_refit = "on_change",
   chains = 2,
   cores = 2,
-  threads = threading(4),
   stan_model_args = list(stanc_options = list("O1")),
   silent = 2,
-  file = "../data/model_fit2",
-  file_refit = "on_change",
   seed = 0
 )
 
@@ -293,21 +296,12 @@ loo_compare(
 
 # Prediction
 
-N.B. There are several data sets for this exercise, so pay attention to which one you are using!
+Creating predictions for the test set and assess how well they do compared to the actual data.
 
-1. The (training) data set from last time
-2. The (test) data set on which you can test the models from last time:
-  - [Demographic and clinical data](https://www.dropbox.com/s/ra99bdvm6fzay3g/demo_test.csv?dl=1)
-  - [Utterance Length data](https://www.dropbox.com/s/uxtqqzl18nwxowq/LU_test.csv?dl=1)
-  - [Word data](https://www.dropbox.com/s/1ces4hv8kh0stov/token_test.csv?dl=1)
-
-Relying on the model(s) you trained in part 2 of the exercise, create predictions for the test set and assess how well they do compared to the actual data.
-
-- Discuss the differences in performance of your model in training and testing data. Is the model any good?
-- Let's assume you are a speech therapy clinic. You want to assess whether the kids in your test sample will have a typical (like a TD) development, or they will have a worse one, in which case they should get speech therapy support. What do your predictions tell you about that? Which kids would you provide therapy for? Is the model any good? 
+First, I have to load test dataframes and merge them
 
 ```{r import_data, message = FALSE}
-demographics <- read_csv("../data/demo_test.csv") %>% 
+demographics <- read_csv("data/demo_test.csv") %>% 
   mutate(
     Child.ID = factor(str_replace_all(Child.ID, "[:punct:]", ""))
   ) %>% select(c(
@@ -323,7 +317,7 @@ demographics <- read_csv("../data/demo_test.csv") %>%
     Socialization
   ))
 
-utterance_lengths <- read_csv("../data/LU_test.csv") %>%
+utterance_lengths <- read_csv("data/LU_test.csv") %>%
   mutate(
     SUBJ = factor(str_replace_all(SUBJ, "[:punct:]", "")),
     VISIT = as.numeric(str_extract(VISIT, "\\d+"))
@@ -338,7 +332,7 @@ utterance_lengths <- read_csv("../data/LU_test.csv") %>%
     Visit = VISIT
   )
 
-words_uttered <- read_csv("../data/token_test.csv") %>%
+words_uttered <- read_csv("data/token_test.csv") %>%
   mutate(
     SUBJ = str_replace_all(SUBJ, "[:punct:]", ""),
     VISIT = as.numeric(str_extract(VISIT, "\\d+"))
@@ -365,10 +359,10 @@ dataset_test <- demographics %>%
       Diagnosis = factor(recode(Diagnosis, A = "ASD", B = "TD"), levels = c("TD", "ASD"))
     )
 
-dataset_test %>% write_csv(file = "../data/test_data_clean.csv")
+dataset_test %>% write_csv(file = "data/test_data_clean.csv")
 ```
 
-Assess the performance of the model on the training vs. testing data: root mean square error is a good measure.
+Assessing the performance of the model on the training vs. testing data: root mean square error is a good measure.
 
 ```{r assess_performance}
 dataset_train_predictions <- add_predicted_draws(drop_na(dataset_train, any_of(all.vars(model_formula$formula))), fit2, allow_new_levels = TRUE)
