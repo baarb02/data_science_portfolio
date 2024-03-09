@@ -1,225 +1,224 @@
 ---
-title: 'Portfolio Assignment 4 (Individual)'
+title: 'Titanic_prediction'
 author: 
-  - Barbora Ferusová - (202207346@post.au.dk) 
-date: "`r Sys.Date()`"
+  - Barbora Ferusová - (barbora.ferusova@gmail.com) 
+date: "Last edited: `r Sys.Date()`"
 output:
-  pdf_document: 
-    fig_height: 4
-    fig_caption: yes
-  word_document: default
-header-includes: 
-  \usepackage{fancyhdr}
-  \usepackage{fvextra}
+  html_document:
+    css: styles.css
 ---
 
+# Titanic prediction: Predicting Titanic survival on Logistic Regression Models
 
-\pagestyle{fancy}
-\fancyhead[HL]{Portfolio Assignment 4}
-\fancyhead[HC]{Caketastrophe}
-\fancyhead[HR]{Barbora Ferusová}
+### **Coding Skills Showcased:**
 
-\DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+-   Data cleaning and preprocessing
+-   Exploratory data analysis
+-   Logistic regression modeling
+-   Interpretation of model coefficients and statistical metrics
+-   Predicting probabilities based on a model
+-   Data visualization and presentation of results
+This project demonstrates a comprehensive skill set in data cleaning, exploratory analysis, logistic regression modeling, and statistical validation, essential for data-driven research and decision-making.
 
+### Intro:
+
+Over a century after the Titanic's tragic voyage, modern data analysis allows us to unravel the factors behind its infamous passenger survival rates. This project aims to employ logistic regression to predict survival outcomes, offering insights into historical data's impact on contemporary data-driven decision-making.
+
+### Methods:
+
+The dataset comprises details of 887 passengers on board the Titanic such as age, sex, and class, pivotal in understanding survival patterns. Logistic regression was chosen for its efficacy in binary outcome prediction, leveraging these variables to ascertain survival likelihood. Data preprocessing included handling missing values and creating dummy variables for categorical data, essential for a robust analysis. Assumptions of a logistic regression were tested.
+
+### Results:
+
+The logistic regression model revealed significant predictors of survival, with sex and class showing the strongest influence. Comparing these results with historical accounts, the model aligns with known survival trends, validating its accuracy. The analysis also uncovers nuanced insights, such as the impact of age and fare prices on survival chances. The outcome showed that the chosen model had the accuracy of *79.48%* in predicting the probability of survival. (Please continue below for full results)
+
+The model had the following syntax:
+
+-   **Eq 1: Survived \~ Age + Sex + Pclass**
+
+(The Pclass variable points to the travel class of passengers: 1st, 2nd and 3rd)
+
+### Statistical Validity:
+
+Model validation included assessing fit through residual analysis and ensuring no multicollinearity among predictors. Metrics like accuracy, precision, and recall were calculated, demonstrating the model’s predictive strength and reliability in historical data interpretation.
+
+In conclusion, these values of accuracy are better than what would be obtained by chance. It therefore points us to the consensus that information such as age, sex and class can be used to successfully predict the survival of a catastrophe.
 
 ```{r, libraries, include=FALSE}
-library(lme4)
-library(tidyverse)
-library(dplyr)
-library(ggplot2)
-library(pastecs)
-library(gridExtra)
-library(DHARMa)
-library(car)
+# library loading
+pacman::p_load(corrplot, lmerTest, lme4, tidyverse, dplyr, ggplot2, pastecs, gridExtra, DHARMa, car, caret, knitr)
 ```
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(include = FALSE)
-knitr::opts_knit$set(root.dir = '/work/CogSci_Methods01/portfolio_assignment_04-baarb02/.github')
+knitr::opts_chunk$set(include = TRUE, echo = TRUE)
+knitr::opts_knit$set(root.dir = '/Users/barb/Documents/GitHub/data_science_portfolio/Prediction')
+knitr::opts_chunk$set(fig.width=4, fig.height=3)
 ```
 
-```{r clear_workspace, include=FALSE}
-rm(list=ls())
+### Loading and formatting data
+
+```{r, warning=FALSE}
+# load data, set variable types like factor or numerical
+# deselect unused variables
+titanic_df <- read_csv('data/titanic.csv',
+                       col_types = c(Survived = "f",Pclass = "f",
+                                     Name = "f",Sex = "f",Age = "n")) %>% 
+            select(-c("Siblings/Spouses Aboard", "Parents/Children Aboard", "Fare")) 
 ```
 
-```{r warning=FALSE}
-setwd('/work/CogSci_Methods01/data/')
+# 1 Titanic Survival Analysis
 
-cake_df <- read_csv('cake.csv',col_types = c(replicate = "f",recipe = "f", angle = "i",temp = "f")) %>% 
-          select(-c(temperature))
-
-titanic_df <- read_csv('titanic.csv',col_types = c(Survived = "f",Pclass = "f",Name = "f",Sex = "f",Age = "n")) %>% 
-          select(-c("Siblings/Spouses Aboard", "Parents/Children Aboard", "Fare")) 
-
-```
-
-# 1. Cake Breakage Analysis
-
-We used R (4.2.0) and lmerTest (3.1-3) to perform a linear mixed effects analysis of the relationship between breakage angle and temperature, considering the apparent effects of baking temperature on cake textures. As fixed effects, we entered replicate, or the number of repetitions. As random effects, we had intercepts for recipes. 
-
-The model had the following syntax:
-
--   **Eq 1: angle \~ temp + replicate + (1 \| recipe )**
-
-Outcome: angle
-Fixed effects: temperature and replicate
-Random effects: recipe (random intercept)
-
-The assumption is that different combinations of ingredients were not something we were interested in analyzing. The choice of recipes was limited in this experiment and we cannot account for each ingredient and it's ratio. For what we know the specifics could be interfering with our analysis and therefore have to be selected as error. Other models were tested but either a. were an overfit, b. had a high AIC score or c. weren't theoretically justifiable.
-
-The maximal model accounted for roughly 68% of variance in the angle (R^2^ conditional = 0.68),while the fixed effect accounted for roughly 11% (R^2^ marginal = 0.11). Visual inspection of residual plots did not reveal any obvious deviations from homoscedasticity or linearity. Angle has been found to significantly be modulated by number of replications (SE= 1.54, p \<.05) and temperature (SE= 0.97 , p \<.05).
-
-```{r assessing what variables to use, echo=FALSE, include=TRUE}
-plot(cake_df)
-# we can consider all predictors
-cake_00 <- lm(angle ~ temp + recipe + replicate, cake_df)# recipe does not seem to add significance
-```
-
-```{r trying out different models}
-cake_0 <- lm(angle ~ temp, cake_df) 
-#cake_1<-lmerTest::lmer(angle ~ temp + (1|recipe), data = cake_df, REML = F) # singular warning = its an overfit # bad R2
-
-#cake_2<-lmerTest::lmer(angle ~ temp + (1+recipe|replicate), data = cake_df, REML = F) # singular warning = its an overfit # but highest R2 
-
-#cake_3<-lmerTest::lmer(angle ~ temp + (1|replicate), data = cake_df, REML = F)
-
-#cake_4<-lmerTest::lmer(angle ~ temp + (1|replicate) + (1|recipe), data = cake_df, REML = F)
-
-#cake_5<-lmerTest::lmer(angle ~ temp + replicate + (1+ recipe|replicate), data = cake_df, REML = F) # low AIC 1640 # singular (overfit)
-
-#cake_6<-lmerTest::lmer(angle ~ temp + recipe + (1|replicate), data = cake_df, REML = F) #padlet Anna
-
-   cake_7<-lmerTest::lmer(angle ~ temp + replicate + (1|recipe),
-                                      data = cake_df, REML = F)  # AIC of 1639 and no warning
-
-   # cake_8<-lmerTest::lmer(angle ~ temp + replicate + (1+ temp|recipe),  data = cake_df, REML = F) # singular (overfit)
-   
-summary (cake_7)
-summary (cake_0)
-
-AIC(cake_0)
-MuMIn::r.squaredGLMM(cake_0)
-```
-
-```{r echo=FALSE, warning=FALSE, include=TRUE}
-AIC <- AIC(cake_7)
-r2 <- MuMIn::r.squaredGLMM(cake_7) # 68% 
-summary <- cbind(AIC, r2)
-knitr::kable(summary, caption = "Model 7: angle ~ temp + replicate + (1|recipe)")
-# this model says that recipe we chose explained some of the variance as a random intercept effect
-# I chose a simpler model to avoid  overfitting the data
-```
-
-```{r include=TRUE, echo=FALSE}
-#table of results
-model7 = lmerTest::lmer(angle ~ temp + replicate + (1|recipe), data = cake_df, REML = F)
-
-knitr::kable(summary(model7)$coefficients, caption = "Model 7: angle ~ temp + replicate + (1|recipe)", digits = c(4,4,4,4,30))
-
-```
-
-```{r include=TRUE, echo=FALSE}
-#checking for linearity and homoschedasticity
-plot(model7)
-```
-
-```{r testing the residuals with DHARMa, echo=FALSE, include=TRUE}
-#DHARMa - checking residuals
-simulationOutput <- simulateResiduals(fittedModel = model7, plot = F)
-#residuals(simulationOutput, quantileFunction = qnorm, outlierValues = c(-7,7))
-plot(simulationOutput) # red stars show simulation outliers (data points that are outside the range of simulated values)
-#testOutliers(simulationOutput) # not significant
-#testUniformity(simulationOutput) # not significant
-```
-
-# 2.1 Titanic Survival Analysis
-
-We used R (4.2.0) and stats (version 3.6.2) to perform a logistic regression analysis of the relationship between survival and the present demographic information (age, sex and class). The outcome showed that our model had the accuracy of 79.48% in predicting the probability of survival based on the other demographic variables used.
-
-The model had the following syntax:
-
--   Eq 2: Survived \~ Age + Sex + Pclass
-
-Visual inspection of residual plots did not reveal any obvious deviations from normality, linearity or  multicollinearity. The sensitivity is 70.76%. The specificity is 84.95%. The model has less excess variance than the null model.
-
-In conclusion, these values of accuracy are better than what would be obtained by chance. It therefore points us to the consensus that information such as age, sex and class can be used to successfully predict the survival of a catastrophe similar to the Titanic.
-
-```{r anonamysing}
+```{r}
+# create a random ID for anonimity
 titanic_df$Name <- as.factor(titanic_df$Name)
 titanic_df$Name <- as.numeric(titanic_df$Name)
 titanic_df$Name <- as.factor(titanic_df$Name)
-
 ```
 
 ```{r echo=FALSE, include=TRUE}
-ggplot(titanic_df, aes(Survived, Sex, color = Pclass, shape = Pclass)) + geom_jitter(width = .4, height = .4) + ggtitle("Using geom_jitter")
+# Visualisation using geom_jitter
+ggplot(titanic_df, aes(Survived, Sex, color = Pclass, shape = Pclass)) + 
+  geom_jitter(width = .4, height = .4) + 
+  ggtitle("Survival based on Sex and Class") + 
+  theme_minimal()
 ```
 
+```{r}
+# Faceted plot for Survival Rate by Class and Sex
+ggplot(titanic_df, aes(x = Sex, fill = Survived)) +
+  geom_bar(position = 'fill') +
+  facet_grid(~ Pclass) +
+  labs(y = 'Survival Rate', title = 'Survival Rate by Class and Sex') +
+  theme_minimal()
+```
 
 ```{r}
 plot(titanic_df)
 ```
 
 ```{r}
+# Creating a binary variable to indicate if the passenger's age is the median age
 titanic_df <- titanic_df %>% 
-                  mutate(isMedianAge = titanic_df$Age == median(titanic_df$Age) )
-titanic_df$isMedianAge <- as.factor(titanic_df$isMedianAge)
-```
-
-
-```{r picking a model, echo=FALSE}
-general_model <- glm(Survived ~ Sex + Age + Pclass, family = binomial(link=logit),
-                                      data = titanic_df)
-
-
-tit_1 <-glm(Survived ~ Sex + isMedianAge + Pclass, family = binomial(link=logit),
-                                      data = titanic_df)
-summary(tit_1)
-
-knitr::kable(summary(general_model)$coefficients, caption = "Logistic regression model: Survived ~ Sex + Age + Pclass")
-#vif(tit_1)
-#logLik(tit_1)
-# AIC of 793
-# less unexplained variance than the null model 
-```
-
-
-
-```{r include= TRUE, echo=FALSE, message=FALSE, warning=FALSE}
-model1 = glm(Survived ~ Age + Sex + Pclass , family = binomial(link=logit),
-                                      data = titanic_df)
-plot(model1, 1) # close to linear
-```
-
-### Testing for problematic multicollinearity
-
-```{r echo=FALSE, include= TRUE}
-vif<-car::vif(model1)
-knitr::kable(vif)
-```
-The model does not show any concerning multicollinearity.
-
-
-```{r include=TRUE, echo=FALSE, message=FALSE, warning=FALSE}
-plot(model1, 2) # close to normal 
+              mutate(isMedianAge = as.factor(Age == median(Age)))
 ```
 
 ```{r}
+# I put in my equation into a basic model using glm()
+general_model <- glm(Survived ~ Sex + Age + Pclass, family = binomial(link=logit),
+                                      data = titanic_df)
+
+# play around with the equation
+tit_1 <- glm(Survived ~ Sex + isMedianAge + Pclass, family = binomial(link=logit),
+                                      data = titanic_df)
+summary(tit_1) # summarize model
+# create a table for the general model
+knitr::kable(summary(general_model)$coefficients, caption = "Logistic regression model: Survived ~ Sex + Age + Pclass")
+
+```
+
+Logistic regression is used due to its effectiveness in handling binary outcome variables, like survival in the Titanic dataset.
+
+```{r}
+# Set up cross-validation using 10-fold CV
+set.seed(123)  # for reproducibility
+train_control <- trainControl(method = "cv", number = 10)
+
+# Fit the model with cross-validation
+cv_model <- train(Survived ~ Sex + Age + Pclass, 
+                  data = titanic_df, 
+                  method = "glm", 
+                  family = binomial(link = "logit"),
+                  trControl = train_control)
+
+# Print the results
+print(cv_model)
+
+# Summarize the cross-validation results
+summary(cv_model)
+```
+
+**Cross-validation explanation:** The output presents a generalized linear model (GLM) for predicting the survival of passengers on the Titanic, using logistic regression. The model includes three predictors: Sex, Age, and Pclass (passenger class).
+
+Accuracy: The average accuracy across the 10-fold cross-validation is approximately 79.36%. This means the model correctly predicts survival 79.36% of the time across different subsets of the data.
+
+Kappa: The Cohen's Kappa score is 0.5603, suggesting a moderate level of agreement between the model's predictions and the actual outcomes, corrected for chance. This is an indication that the model is performing significantly better than random guessing.
+
+**Coefficients:**
+
+(Intercept): The base log-odds of survival, when all predictor variables are 0, is -1.40924. This negative value indicates a low probability of survival when all predictors are at their reference level.
+
+\*\*Sex (female):\*\* With an estimate of 2.58872, being female is a strong positive predictor of survival. The positive coefficient implies that females had a much higher probability of surviving than males, holding all other variables constant.
+
+**Age:** The coefficient of -0.03427 indicates that the probability of survival decreases with increasing age. Each additional year of age slightly reduces the log-odds of surviving.
+
+**Pclass1 and Pclass2:** The positive coefficients for Pclass1 (2.45544) and Pclass2 (1.25633) suggest that passengers in the first and second class had higher odds of survival compared to those in the third class (the reference category).
+
+**Statistical Significance:** All predictors have very low p-values (less than 0.05), indicating that the effects are statistically significant and unlikely to be due to random chance.
+
+**Model Fit:** The decrease from the null deviance (1182.77) to the residual deviance (801.59) demonstrates that the model with predictors provides a significantly better fit to the data than the null model, which only includes the intercept.
+
+\*\*AIC (Akaike Information Criterion):\*\* The AIC of the model is 811.59, which provides a measure of the relative quality of the model for the given set of data. Lower AIC values generally indicate a better model, but it is mostly used for comparison between different models.
+
+```{r}
+# Extract model coefficients and standard errors
+coef_df <- summary(general_model)$coefficients %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Variable") 
+
+coef_df <- coef_df %>%
+  mutate(Lower = Estimate - 1.96 * `Std. Error`,
+         Upper = Estimate + 1.96 * `Std. Error`)
+
+# Create coefficient plot
+ggplot(coef_df, aes(x = Variable, y = Estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.2) +
+  theme_minimal() +
+  labs(title = "Coefficient Plot of Logistic Regression Model",
+       x = "Predictors",
+       y = "Estimate")
+```
+Here we can see how much each predictor influences the outcome and the standard deviation of that estimate.
+
+```{r, message=FALSE, warning=FALSE}
+plot(general_model, 1) # plot residuals 
+```
+
+In the residual vs. fitted plot, the residuals should ideally be randomly dispersed around the horizontal axis, indicating that the model's predictions are unbiased across the range of fitted values. It seems there was no obvious pattern in the residual plot, which is good. This suggests that the logistic regression model's assumptions of linearity in the logit of the predictors are reasonably met.
+
+### Testing for problematic multicollinearity
+
+```{r}
+vif<-car::vif(general_model) # use vif() for testing multicollinearity
+knitr::kable(vif) # put it in a nice table
+```
+
+-   The residual plots and absence of multicollinearity, with GVIF values close to 1 for all predictors, validate the model's appropriateness.
+
+-   The significant p-values (nearly 0) for sex and class imply these factors are statistically significant predictors of survival.
+
+```{r, message=FALSE, warning=FALSE}
+plot(general_model, 2) # plot a QQ plot for residuals
+```
+
+The QQ plot (quantile-quantile plot) of residuals is used to assess if the distribution of residuals follows a normal distribution. In an ideal QQ plot, the points should fall along a straight line. Deviations from this line indicate departures from normality, which can affect confidence interval estimation and hypothesis testing. While logistic regression does not assume normality of residuals, the QQ plot can still be useful for identifying extreme values that might influence the model.
+
+```{r}
+# check levels of variables Survived and Pclass
 levels(titanic_df$Survived) 
 levels(titanic_df$Pclass) 
 ```
 
+## 1.1 Probabilities of different categories
 
-
-
-## 2.2 Probabilities of different categories
-
-```{r echo=TRUE, include=TRUE}
+```{r}
 dummy.coef(tit_1) # getting coefficents of a version of the general model where we plug in the median age 
 # (Survived ~ Sex + isMedianAge + Pclass)
 ```
-Converting the log-odds estimates to probabilities and into percentages:
-```{r echo=TRUE, include=TRUE}
+
+### Converting the log-odds estimates to probabilities and into percentages:
+
+```{r}
 
 Female_actual_prob <-boot::inv.logit(2.6360 + (-2.2224))*100
 
@@ -234,22 +233,17 @@ Class2_actual_prob <-boot::inv.logit(1.0633 + (-2.2224))*100
 Age_actual_prob <-boot::inv.logit(-0.4430 + (-2.2224))*100 
 ```
 
-
-```{r include = TRUE, echo = FALSE}
-
+```{r}
+# create a pretty table
 alive_or_not_actual <-rbind(Female_actual_prob, Male_actual_prob, Class1_actual_prob, Class2_actual_prob, Class3_actual_prob, Age_actual_prob)
-
 knitr::kable(alive_or_not_actual, caption = "Real probabilities of survival for different categories")
 ```
 
+## 1.2 Predicting probabilities with the model
 
-
-## 2.3 Bonus: Predicting probabilities with our model
-
-
-```{r predicting probability of survival for every data point}
+```{r}
 #Survived ~ Age + Sex + Pclass
-#predicting probabilities
+#predicting probabilities of survival for every data point
 predicted_probs <- predict(general_model, titanic_df, type = 'response', na.action = na.pass)
 
 #extracting actual data
@@ -258,28 +252,60 @@ actual <- titanic_df$Survived
 #predicted probabilities of surviving against the actual data
 pred_df <- tibble(predicted_probs, actual)
 
-# readability
+# readability: mark probabilities below 50% survival as death and rest as survival
 pred_df <- pred_df %>% 
   mutate(predicted_category = if_else(predicted_probs < 0.5, "0", "1"))
 pred_df <- pred_df %>% 
   mutate(predicted_category = as_factor(predicted_category))
 
+titanic_df <- titanic_df %>% 
+  mutate(predicted_category = pred_df$predicted_category)
 head(pred_df)
 
 ```
 
-```{r confusionMatrix, include = TRUE, echo=FALSE, message=FALSE, warning=FALSE}
+```{r}
+# create confusion matrix
+confusion <- titanic_df %>%
+  group_by(Actual = factor(Survived, levels = c(0, 1)), 
+           Predicted = factor(predicted_category, levels = c(0, 1))) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+# plot it (total 887 observations)
+ggplot(confusion, aes(x = Actual, y = Predicted, fill = Count)) +
+  geom_tile(color = "white") + 
+  geom_text(aes(label = Count), vjust = 1) + 
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  ggtitle("Confusion Matrix: Actual vs Predicted Survival") +
+  xlab("Actual Survival") +
+  ylab("Predicted Survival") +
+  theme_minimal()
+
+```
+
+*The plot in the context of error types in statistics:*
+
+False Positives (FP): These are instances where the predicted category is 1 (survival) but the actual Survived value is 0 (non-survival). This represents a Type I error, where the model incorrectly predicted survival when the passenger did not survive.(n=100)
+
+False Negatives (FN): These are instances where the predicted category is 0 (non-survival) but the actual Survived value is 1 (survival). This represents a Type II error, where the model incorrectly predicted non-survival when the passenger actually survived. (n=82)
+
+We can see that the model is much better at predicting death than survival in this case.
+
+```{r, message=FALSE, warning=FALSE}
+# create a confusion matrix 
 confusionMatrix <- caret::confusionMatrix(pred_df$predicted_category, pred_df$actual, positive = "1")
+# summarize stats into a table
 knitr::kable(confusionMatrix$overall, caption = "Confusion Matrix and Statistics")
 ```
 
 ```{r}
+# create a table to see other stats
 knitr::kable(confusionMatrix$byClass, caption = "Confusion Matrix and Statistics")
 ```
 
-
-```{r different predictions, echo=TRUE, include=TRUE}
-# predicting 
+```{r}
+# predicting for separate categories
 titanic_df_model <- titanic_df %>% 
   mutate (predicted_probs = predict(general_model, titanic_df, type = 'response', na.action = na.pass))
 
@@ -309,10 +335,14 @@ Median_Age <- titanic_df_model %>%
   
 ```
 
-```{r include = TRUE, echo = FALSE}
+```{r}
+# create a nice table for predictions
 alive_or_not <-rbind(Female, Male, Class1, Class2, Class3, Median_Age)
 knitr::kable(alive_or_not, caption = "Predicted probabilities of survival for different categories")
 ```
 
+**The model translated the logistic regression outputs into probabilities:**
 
+-   The probability of survival for females was estimated at ~74%, significantly higher than for males at ~19%.
 
+-   Passengers in class 1 had a ~63% chance of survival, compared to ~47% and ~24% for classes 2 and 3, respectively.
