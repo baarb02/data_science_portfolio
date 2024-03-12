@@ -12,6 +12,17 @@ output:
 geometry: margin=1in
 ---
 
+**Skills showcased:**
+- Large Dataset Importing and Management
+- Data Cleaning (Standardize Variables)
+- Data Transformation and Selection
+- Data Merging and Integration
+- Data Filtering
+- Variable Encoding and Recoding
+- Error Checking and Data Integrity
+- Application of theoretical concepts like types and tokens in linguistics to practical data analysis, highlighting the ability to translate theoretical knowledge into actionable data insights.
+
+
 # 1. Data Manipulation
 
 ```{r setup}

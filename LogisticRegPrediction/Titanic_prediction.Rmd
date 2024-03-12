@@ -14,7 +14,7 @@ geometry: margin=1in
 
 # Titanic prediction: Predicting Titanic survival on Logistic Regression Models
 
-### **Coding Skills Showcased:**
+### **Skills Showcased:**
 
 -   Data cleaning and preprocessing
 -   Exploratory data analysis
