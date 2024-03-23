@@ -1,7 +1,7 @@
 ---
 title: 'Language development in autistic and neurotypical participants'
 author: 
-  - Barbora Ferusová - (barbora.ferusova@gmail.com) 
+  "Barbora Ferusová - (barbora.ferusova@gmail.com)"
 date: "Last edited: `r Sys.Date()`"
 output:
   html_document:
@@ -14,7 +14,7 @@ output:
 **Project Overview:**
 This analysis investigates the language development differences between children with Autism Spectrum Disorder (ASD) and typically developing (TD) children. Leveraging longitudinal naturalistic data, I employ advanced statistical models to understand language progression patterns.
 
-**Skills showcased:**
+### **Skills showcased:**
 - Data wrangling
 - Exploratory data analysis and visualization
 - Prior predictive checks

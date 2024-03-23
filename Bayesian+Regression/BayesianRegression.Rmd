@@ -1,0 +1,530 @@
+---
+title: "Life expectancy of countries and healthcare budget"
+author: 
+  "Barbora Ferusová - (barbora.ferusova@gmail.com)" 
+date: "Last edited: `r Sys.Date()`"
+output:
+  html_document:
+    number_sections: no
+    highlight: tango
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=4, fig.height=3)
+
+```
+
+
+```{r, include=FALSE}
+pacman::p_load(
+  tidyverse,
+  lmerTest,
+  rethinking,
+  patchwork,
+  gridExtra,
+  knitr,
+  ggplot2
+)
+knitr::opts_chunk$set(fig.width=6, fig.height=4)
+knitr::opts_chunk$set(include = TRUE, echo = TRUE)
+```
+
+### **Skills showcased:**
+- **Econometric Modeling:** Proficiency in analyzing the relationship between healthcare expenditure and life expectancy using linear and polynomial regression models.
+- **Statistical Analysis and Inference:** Expertise in conducting descriptive and inferential statistical analyses to derive insights from data.
+- **Data Visualization:** Ability to create meaningful visual representations of data and statistical models to facilitate understanding and decision-making.
+- **Bayesian Statistics:** Advanced skills in applying Bayesian methods to estimate model parameters and predict outcomes.
+- **Simulation and Predictive Modeling:** Competence in simulating data to explore hypothetical scenarios and predict their impact on life expectancy.
+
+### **Advanced Methodological Enhancements:**
+- **Model Complexity and Interpretation:** Incorporated quadratic terms to better capture the curvature in the relationship, improving model fit and predictive accuracy.
+- **Predictive Scenario Analysis:** Simulated the impact of hypothetical policy changes in healthcare budget allocation on life expectancy, demonstrating the model's practical application in policy planning.
+- **Posterior Analysis and Validation:** Thoroughly examined the posterior distributions of model parameters, ensuring robustness and reliability of the inferences.
+
+# Introduction 
+Utilizing data from the Global Health Observatory of the World Health Organization, this project embarks on an econometric journey to unravel the intricate relationship between healthcare expenditure and life expectancy across countries. By employing a blend of linear and polynomial regression analyses within a Bayesian framework, the study seeks to quantify how variations in healthcare budgets impact population longevity.
+
+```{r, echo=TRUE, results='hide'}
+# Rename columns for ease of use
+df <- read_csv("data/life_data.csv") %>%
+  rename(
+    life_expectancy = `Life expectancy`,
+    total_expenditure = `Total expenditure`
+  ) %>%
+  filter(!is.na(total_expenditure), Year == 2014)  # Filter in one step
+```
+
+# Descriptive statistics
+
+Conducting an initial examination through boxplots and scatterplots to visualize the distribution and relationship between life expectancy and healthcare expenditure.
+```{r}
+# Set common plot theme parameters
+theme_set(theme_minimal())
+boxplot_life <- ggplot(df, aes(x = "", y = life_expectancy)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Life Expectancy")
+
+boxplot_expenditure <- ggplot(df, aes(x = "", y = total_expenditure)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Total Expenditure on Healthcare")
+
+# Arrange boxplots
+(boxplot_life | boxplot_expenditure)
+```
+
+```{r}
+# Scatterplot
+ggplot(df, aes(x = total_expenditure, y = life_expectancy)) +
+  geom_point() +
+  labs(title = "Scatterplot of Life Expectancy vs Total Expenditure",
+       x = "Total Expenditure on Healthcare",
+       y = "Life Expectancy") +
+  theme_minimal()
+```
+
+
+# Part 1: Gaussian model of life expectancy
+
+## 1.1 Plotting the distribution of life expectancy
+
+```{r}
+# Plot distribution of life expectancy
+ggplot(df, aes(x = life_expectancy)) +
+  geom_histogram(bins = 20, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Life Expectancy") +
+  theme_minimal()
+```
+
+> Parameters to be estimated for the Gaussian distribution of life expectancy would include mean (μ) and standard deviation (σ). These parameters describe the center and spread of the distribution, respectively.
+
+## 1.2 Model
+
+- Prior for life expectancy: Normal distribution with mean = 72 and standard deviation = 5.
+
+Estimating the distribution parameters of life expectancy using Bayesian priors and posterior predictive simulations, providing insights into the underlying statistical characteristics of the data.
+
+### Prior predictive simulation
+
+```{r}
+# Fist, plot priors on their own
+par(mfrow = c(1, 2))
+plot_mu <- curve(dnorm(x, 72, 5), from= 40, to= 100) # for mu
+plot_sigma <- curve(dunif(x, 0, 10), from= -10, to= 20) # for sigma
+```
+
+```{r}
+# Set priors mu and sigma and sample with the priors 
+sample_mu <- rnorm(1e4, 72, 5)
+sample_sigma <- runif(1e4, 0, 10)
+prior_life <- rnorm(1e4, sample_mu, sample_sigma )
+dens(prior_life)
+```
+
+```{r}
+# do PI (89% dies between) 
+PI(prior_life, prob = 0.89)
+```
+
+> Normal Distribution for Mean (mu): The mean of the normal distribution for mu is set to 72, which is close to the center of the PI. The standard deviation of 5 covers a reasonable range around the mean. This prior distribution seems reasonable since it's centered around a value within the PI, and the standard deviation allows for sufficient variability to capture the spread of the data.
+
+>Uniform Distribution for Standard Deviation (sigma): The range of the uniform distribution for sigma is from 0 to 10.
+This allows for variability in standard deviation, covering a wide range of possible values.
+It's important to note that this distribution doesn't perfectly align with the PI, as the lower bound of the PI is above 0 and the upper bound is below 10. However, since the standard deviation can vary widely, a uniform distribution within a reasonable range can still be a justifiable choice.
+
+
+## 1.3 Quadratic approximation
+
+Using quadratic approximation to find the posterior distribution.
+
+```{r}
+# Define priors and model 
+model_notation <- alist(
+  life_expectancy ~ dnorm(mu, sigma),
+  mu ~ dnorm(72, 5),
+  sigma ~ dunif(0, 10)
+)
+
+mv1 <- quap(model_notation, data = df)
+
+```
+>The choice of priors for the quap model follows the same rationale as before: to provide reasonable informative priors while allowing flexibility in the analysis. We use normal priors for the intercept (a) and slope (b) parameters, centered around 0 with a standard deviation of 10. Additionally, a Cauchy prior with location 0 and scale 1 is used for the standard deviation (sigma) parameter to allow for heavy tails in the distribution.
+
+## 1.4. Sample the posterior
+
+```{r}
+# Sample from the posterior distribution
+posterior_samples <- extract.samples(mv1)
+
+# Summarize the posterior samples
+precis(posterior_samples)
+round( vcov( mv1 ) , 3 )
+```
+> The confidence interval of mu is pretty tight around 72, an over-fit.
+
+```{r}
+# Compute the mean of the fitted values 'mu' from the posterior samples
+fitted_values <- mean(posterior_samples$mu)
+
+# Compute residuals as the difference between observed values and the mean of fitted values
+observed_values <- df$life_expectancy
+residuals <- observed_values - fitted_values
+
+# Now plot residuals vs fitted values
+plot(observed_values, residuals, main="Residuals vs Fitted mv1", xlab="Fitted values", ylab="Residuals")
+abline(h=0, col="red")
+
+# For the normality check of residuals
+qqnorm(residuals)
+qqline(residuals, col = "red")
+
+AIC(mv1)
+```
+**Residuals**: 
+- the plot suggests that the residuals are normally distributed for the majority of data
+- the residuals have heavier tails than a normal distribution, which suggests that extreme values (outliers) are more likely than what would be expected under normality
+- the model is less reliable when predicting very high or very low life expectancies
+
+
+# Part 2: Linear prediction
+
+Exploring the linear relationship between healthcare expenditure and life expectancy, applying Bayesian inference to estimate model parameters and assess their impacts.
+
+## 2.1 Model
+
+```{r}
+plot(df$life_expectancy ~ df$total_expenditure)
+```
+
+Describing the *likelihood*
+
+```{r}
+# Likelihood of life_expectancy
+df$life_expectancy ~ dnorm(mu, sigma)
+
+```
+
+> We expect y (life_expectancy) to follow a Gaussian distribution defined by a mean and standard deviation.
+
+Describing the **the linear model**
+
+```{r}
+# Linear model
+x <- df$total_expenditure
+xbar <- mean(x)
+#mu <- a + b*(x - xbar) 
+```
+
+> Here we define the linear model as a deterministic expression of mu, with parameters a,b and x. Inside the parentheses allow for a deviation of an individual observation of x from the mean.
+
+Describing the parameter **alpha**
+```{r}
+# a
+a ~ dnorm(72,5) # intercept
+```
+
+> Alpha is the intercept parameter of my model to be estimated. Intercept is the value of y when x is 0. We chose a Gaussian distribution with a mean intercept of 72 years for expenditure of 0, with a standard deviation of 10 years.
+
+Describing the parameter **beta**
+```{r}
+# b
+b ~ dlnorm(0,1) # slope
+```
+
+> Beta is the slope parameter of my regression to be estimated. Since we are suggesting a positive relationship, we can't suggest same probability of negative and positive values. And so the mean is a flat slope of 0 with a standard deviation of 1.
+
+> Together they're a linear model. This assumes that the data follows a linear relationship which isn't the case really. There could also be other parameters that influence life expectancy.
+
+## 2.2 Priors
+
+Now I have three parameters to estimate - the standard deviation parameter *sigma* and the two new parameters - *a* and *b*. 
+
+### Prior predictive simulation
+
+```{r}
+par(mfrow = c(1, 2))
+# Define
+N <- 1e4
+sample_a <- rnorm(N,72,5) # intercept
+sample_b <- rlnorm(N,0,0.5) # slope
+sample_sig <- runif(N,0,10) 
+# plot sigma
+dens(sample_sig, xlim = c(0, 10), adj = 0.1, main = "Samples of sigma with a uniform prior")
+
+# Prior predictive simulation
+prior_pred_sim <- rnorm(N, sample_a, sample_b * sample_sig)
+
+# Plot Prior predictive simulation
+dens(prior_pred_sim,  xlim = c(45, 100), main = "Prior predictive simulation")
+```
+
+
+```{r}
+N <- 100
+sample_a <- rnorm(N,72,5) # intercept
+sample_b <- rlnorm(N,0,0.5) # slope
+
+# Prior predictive simulation of the linear model
+plot(NULL, xlim=range(df$total_expenditure), ylim=c(-10, 130),
+     xlab="total expenditure in % of budget", ylab="mean life expectancy in years")
+abline(h=0, lty=2)
+text(1,122, "oldest person ever (122)", col = "red", adj = c(0, -.3))
+abline(h=122, lty=1, lwd=0.5, col="red")
+text(1,0, "birth", adj = c(0,-.3))
+mtext("Prior predictive simulation of linear model, where b ~ dlnorm(0,0.5)")
+for (i in 1:N) curve(sample_a[i] + sample_b[i]*(x-xbar),
+                     from=min(df$total_expenditure), to=max(df$total_expenditure), add=TRUE,
+                     col=col.alpha("black", 0.2))
+```
+> Limitations of this model are that it would not work for very high values of expenditure
+
+
+## 2.3 Finding the posterior distribution (another)
+
+Using quap to find the posterior distribution.
+
+```{r}
+# Here's a dataframe again
+df2 <- df[, c("life_expectancy", "total_expenditure"), drop = FALSE]
+
+model_notation_linear <- alist(
+                      life_expectancy ~ dnorm(mu, sigma),
+                      mu <- a + b*(x - xbar),
+                      a ~ dnorm(72,5),
+                      b ~ dlnorm(0,1),
+                      sigma ~ dunif(0,10)
+)
+# beta dis depending on the magnitude of the relationship
+mv2 <- quap(model_notation_linear, data = df2)
+```
+
+#### 2.3.1 Tables of marginal distributions
+
+Describing the findings using the marginal posterior distributions.
+
+```{r}
+# Sample from the posterior distribution
+posterior_samples2 <- extract.samples(mv2)
+
+# Summarize the posterior samples
+precis(posterior_samples2)
+```
+
+```{r}
+round( vcov( mv2 ) , 3 )
+```
+
+>The intercept represents the estimated value of the outcome variable when all predictor variables are zero. The mean value provides the central estimate, with the standard deviation indicating the uncertainty around this estimate (in this case pretty large). The 95% credible interval gives the plausible range of values for the intercept (pretty small range).
+> The coefficient for total_expenditure represents the change in the outcome variable associated with a one-unit increase in total_expenditure. The mean value provides the central estimate, with the standard deviation indicating the uncertainty around this estimate (not too big). The 95% credible interval gives the plausible range of values for the coefficient (an okay range).
+>The residual standard deviation, sigma, represents the typical magnitude of the residuals (pretty big uncertainty), reflecting the model's goodness of fit (not so good). The mean value provides the central estimate, with the standard deviation indicating the uncertainty around this estimate (pretty huge). The 95% credible interval gives the compatible range of values for the residual standard deviation (pretty wide range). 
+
+#### 2.3.2 Plotting posterior inference
+
+Plotting the posterior inference, starting with a simple line, then adding uncertainty around the mean line, then incorporating standard deviation *sigma* and it's uncertainty as well.
+```{r}
+# mean line
+plot(life_expectancy ~ total_expenditure , data=df2 , col=rangi2 )
+a_map <- mean(posterior_samples2$a)
+b_map <- mean(posterior_samples2$b)
+curve( a_map + b_map*(x - xbar) , add=TRUE )
+```
+
+> Here we can see the mean regression line of the relationship at hand fitted onto the data points. We can see the magnitude of the relationship.
+
+```{r}
+# Adding standard deviation onto the scatterplot 
+# Calculate necessary stats
+a_map <- mean(posterior_samples2$a)
+b_map <- mean(posterior_samples2$b)
+sigma_mean <- mean(posterior_samples2$sigma)
+x_seq <- seq(min(df2$total_expenditure), max(df2$total_expenditure), length.out=100)
+y_reg <- a_map + b_map * (x_seq - xbar)
+
+# Plot the scatter plot
+plot(life_expectancy ~ total_expenditure, data=df2, col=rangi2, main="Regression with SD")
+
+# Plot mean regression line
+lines(x_seq, y_reg, col="blue")
+
+# Calculate the standard deviation of posterior samples for regression coefficients
+a_sd <- sd(posterior_samples2$a)
+b_sd <- sd(posterior_samples2$b)
+
+# Add shaded area for SD around the regression line
+y_upper <- y_reg + sigma_mean
+y_lower <- y_reg - sigma_mean
+polygon(c(rev(x_seq), x_seq), c(rev(y_lower), y_upper), col=adjustcolor(rangi2, alpha=0.2), border=NA)
+
+# Add labels and legend
+legend("topright", legend=c("Mean Regression Line", "±1 SD"), col=c("blue", "black"), lty=c(1, 2), bty="n") 
+```
+> The shaded area represents the uncertainty around the mean regression line, showing one standard deviation above and below the mean line. 
+
+```{r}
+par(mfrow = c(1, 2))
+
+# SHOWING THE UNCERTAINITY OF ALPHA AND BETA REGRESSION COEFICCENTS 
+# resample the model
+set.seed(123)
+N <- 181
+dN <- df2[1:181,]
+
+mv3 <- quap(alist(
+                  life_expectancy ~ dnorm(mu, sigma),
+                  mu <- a + b*(x - xbar),
+                  a ~ dnorm(72,5),
+                  b ~ dlnorm(0,1),
+                  sigma ~ dunif(0,10)), data = dN)
+
+# extract 20 samples from the posterior
+post20 <- extract.samples( mv3 , n=20 )
+
+# calculating some stats
+a_map20 <- mean(post20$a)
+b_map20 <- mean(post20$b)
+x_seq20 <- seq(min(df2$total_expenditure), max(df2$total_expenditure), length.out=100)
+y_reg20 <- a_map20 + b_map20 * (x_seq20 - xbar)
+
+# display raw data and sample size
+plot(
+     dN$total_expenditure, dN$life_expectancy, 
+     xlim=range(df2$total_expenditure), ylim=range(df2$life_expectancy), 
+     col=rangi2, 
+     xlab="total_expenditure", ylab="life_expectancy",
+     main = "20 samples posterior inference"
+     )
+mtext(concat("N = ",N))
+
+# plot the lines, with transparency
+for ( i in 1:20 )
+  curve( post20$a[i] + post20$b[i]*(x-mean(dN$total_expenditure)) ,
+                        col=col.alpha("black",0.3) , add=TRUE )
+lines(x_seq20, y_reg20, col="blue")
+
+
+# see a random value of total_expenditure
+# just like if we sliced the regression line at 8 
+mu_at_50 <- posterior_samples2$a + posterior_samples2$b * ( 8 - xbar )
+dens( mu_at_50 , col=rangi2 , lwd=2 , xlab="mean life expectancy", main = "Mean Expectancy at 8 Expenditure") 
+abline(v = mean(mu_at_50), col = "red", lwd = 2)
+
+```
+
+> Here we took 10 cases and re-estimated the model. Then we showed 20 of the lines to see what the uncertainty looks like. The second plot shows the posterior distribution for a specific case of expenditure being 8.
+
+```{r}
+# Extracting standard deviation samples from the posterior distribution
+sigma_samples <- posterior_samples2$sigma
+
+# Plotting the density of standard deviation samples
+dens(sigma_samples, col = rangi2, lwd = 2, xlab = "Standard Deviation (sigma)", main = "Density of Standard Deviation Samples")
+
+# Adding a vertical line at the mean standard deviation
+abline(v = mean(sigma_samples), col = "red", lwd = 2)
+
+```
+
+> Here we can see the posterior distribution of values of sigma around the mean sigma. This visualization allows us to understand the variability in the standard deviation and its uncertainty in the context of the model. Basically showing the uncertainty of the uncertainty. 
+
+## 2.4 Prediction
+
+Let's play with a hypothetical scenario: there is a new official elected in an imaginary country and they want to spend 20% of their budget on healthcare. What would happen?
+
+```{r}
+# Extract posterior samples of coefficients and standard deviation
+a_samples <- posterior_samples2$a
+b_samples <- posterior_samples2$b
+
+# Calculate life expectancy for total_expenditure = 20 using each set of coefficients
+life_expectancy_samples <- a_samples + b_samples * (20 - mean(dN$total_expenditure))
+
+# Calculate the mean and credible interval of life expectancy predictions
+life_expectancy_mean <- mean(life_expectancy_samples)
+life_expectancy_ci <- quantile(life_expectancy_samples, c(0.025, 0.975))
+
+dens(life_expectancy_samples, col = rangi2, lwd = 2, xlab = "Expected life expectancy at total expenditure of 20", main = "Hypothetical Nation")
+abline(v = life_expectancy_mean, col = "red", lwd = 2)
+
+```
+
+
+# Part 3: Polynomial regression
+
+Extending the analysis to a polynomial framework to capture non-linear effects, enhancing the model's predictive power and relevance to real-world scenarios.
+
+## 3.1 Generative model to simulate data
+
+Here I will look at hypothetical higher expenditures. I create the relationship and simulate data from it. And then use quadratic approximation to estimate my creation.
+First, I simulate 1000 observations of total expenditure, ranging from 0 to 50. We are then going to standardize this data to ensure my estimates are accurate.
+
+```{r}
+set.seed(420)
+
+# Number of data points
+n <- 1000
+
+# Generate total expenditure on healthcare (ranging from 0 to 100)
+total_expenditure <- runif(n, min = 0, max = 50)
+
+# Standardize total expenditure
+total_expenditure_s <- scale(total_expenditure)
+
+```
+
+Here I encode the relationship between the two variables myself - using a polynomial function, which is adding another parameter b2 which interacts with the square of my *total expenditure* observation.
+
+```{r}
+# intercept indicating the base life expectancy when total expenditure is zero
+a <- 70
+
+# b1 representing the linear effect of total expenditure on life expectancy
+b1 <- 2
+
+# b2 representing the quadratic effect of total expenditure on life expectancy
+b2 <- 0.5
+
+# Create the quadratic relationship equation using standardized variables
+mu <- a + b1 * total_expenditure_s + b2 * total_expenditure_s^2
+
+# Add random noise - my sigma
+life_expectancy <- mu + rnorm(n, mean = 0, sd = 5)
+
+# Create a data frame
+polynomial_data <- data.frame(life_expectancy = life_expectancy, total_expenditure = total_expenditure, total_expenditure_s = total_expenditure_s)
+
+# Plot the simulated relationship
+plot(life_expectancy ~ total_expenditure_s, data = polynomial_data, 
+     main = "Simulated Relationship Between Healthcare Expenditure and Life Expectancy",
+     xlab = "Total Expenditure on Healthcare", ylab = "Life Expectancy")
+```
+
+## 3.2 Quadratic approxmation to estimate the posterior
+
+```{r}
+# Quadratic approximation for the simulated data
+mv_polynomial <- quap(
+  alist(
+    life_expectancy ~ dnorm(mu, sigma),
+    mu <- a + b1 * total_expenditure_s + b2 * total_expenditure_s^2,
+    a ~ dnorm(70, 10),
+    b1 ~ dlnorm(0, 1),
+    b2 ~ dlnorm(0, 1),
+    sigma ~ dunif(0, 10)
+  ),
+  data = polynomial_data
+)
+
+```
+
+
+```{r}
+# Summary of posterior estimates
+polynomial_samples <- extract.samples(mv_polynomial)
+
+# Summarize the posterior samples
+precis(polynomial_samples)
+
+```
+> b2 parameter is kind of off from the 0.5 that we set, but it's still within the confidence (compatibility) interval.
+

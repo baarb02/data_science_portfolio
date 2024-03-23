@@ -1,13 +1,13 @@
 ---
 title: 'Titanic_prediction'
 author: 
-  - Barbora Ferusová - (barbora.ferusova@gmail.com) 
+  "Barbora Ferusová - (barbora.ferusova@gmail.com)"
 date: "Last edited: `r Sys.Date()`"
 output:
   html_document:
       number_sections: no
       theme: united
-      highlight: espresso
+      highlight: tango
       df_print: paged
 geometry: margin=1in
 ---
@@ -55,7 +55,6 @@ pacman::p_load(corrplot, lmerTest, lme4, tidyverse, dplyr, ggplot2, pastecs, gri
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(include = TRUE, echo = TRUE)
-knitr::opts_knit$set(root.dir = '/Users/barb/Documents/GitHub/data_science_portfolio/Prediction')
 knitr::opts_chunk$set(fig.width=4, fig.height=3)
 ```
 

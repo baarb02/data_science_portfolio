@@ -7,7 +7,7 @@ output:
   html_document:
       number_sections: no
       theme: united
-      highlight: espresso
+      highlight: tango
       df_print: paged
 geometry: margin=1in
 ---

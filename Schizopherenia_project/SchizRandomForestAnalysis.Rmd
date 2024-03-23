@@ -1,0 +1,386 @@
+---
+title: "Diagnosing Schizophrenia from Voice"
+author: 
+  "Barbora Ferusová - (barbora.ferusova@gmail.com)" 
+date: "Last edited: `r Sys.Date()`"
+output:
+  html_document:
+    number_sections: no
+    highlight: tango
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+pacman::p_load(
+  tidyverse,
+  readr,
+  modelsummary,
+  gridExtra,
+  scales,
+  knitr
+)
+knitr::opts_chunk$set(fig.width=4, fig.height=3)
+theme_set(theme_minimal())
+```
+
+### **Skills Showcased:**
+- **Advanced Data Manipulation:** Proficiency in transforming and preparing large datasets for analysis using R.
+- **Statistical Analysis:** Expertise in conducting descriptive statistical analyses to understand data characteristics and underlying patterns.
+- **Machine Learning:** Advanced skills in building and optimizing machine learning models, including random forests and support vector machines.
+- **Data Visualization:** Competence in creating insightful visual representations of data and model performance metrics.
+- **Feature Engineering and Model Tuning:** Ability to enhance model performance through systematic feature engineering and hyperparameter tuning.
+
+
+# Introduction to the project
+This project draws inspiration from the cutting-edge research outlined in "Voice Patterns as Markers of Schizophrenia" (Parola A et al., 2023), which posits the utility of vocal characteristics in diagnosing schizophrenia. Leveraging advanced analytical techniques, this study aims to discern the potential of voice atypicalities as biomarkers for schizophrenia, emphasizing their relevance in cognitive and social dynamics of the disorder. The goal is to employ sophisticated unsupervised and supervised learning methods to ascertain if schizophrenia can be accurately diagnosed through vocal features.
+
+  1. Collecting and cleaning the project data
+  2. Understanding the data using descriptive statistics
+  3. Predicting diagnosis using supervised learning procedures
+  4. Discussion on the methods and the results
+
+# Collecting and cleaning the data
+
+## Introduction to datasets:
+
+1. **articulation_data.txt**. This file contains all duration-related data collected from the participants to the different studies included in the project. Here is a short description of its linguistic variables.
+
+  - *nsyll:* number of syllables automatically inferred from the audio
+  - *npause:* number of pauses automatically inferred from the audio (absence of human voice longer than 200 milliseconds)
+  - *dur (s):* duration (in seconds) of the full recording
+  - *phonationtime (s):* duration (in seconds) of the recording where speech is present
+  - *speechrate (nsyll/dur):* average number of syllables per second
+  - *articulation rate (nsyll/phonationtime):* average number of syllables per second where speech is present
+
+```{r import_articulation_data}
+articulation <- read_tsv("data/articulation_data.tsv") %>% rename(Study = study, ID = id, Diagnosis = diagnosis, Trial = trial)
+articulation
+```
+
+2. **pitch_data.txt**. Aggregated pitch data collected from the participants to the different studies included in the project. Fundamental pitch frequency was recorded for each participant every 10 milliseconds (excluding pauses) and aggregated at the participant trial level with the use of various centrality and dispersion measures. 
+  - *iqr:* Interquartile range
+  - *mad:* Mean absolute deviation
+  - *coefvar:* Coefficient of variation
+
+```{r import_pitch_data}
+pitch <- read_tsv("data/pitch_data.tsv")
+pitch
+```
+
+- renaming variables to prepare for merging datasets:
+
+```{r merge_and_save}
+dataset <- left_join(articulation, pitch, by = c("Study", "Trial", "ID", "Diagnosis")) %>% 
+  rename(
+    rate_of_speech = "speech_rate (n_syllables/duration)",
+    rate_of_articulation = "articulation_rate (n_syllables/phonation_duration)",
+    mean_pause_duration = average_pause_duration,
+    pitch_mean = mean,
+    pitch_sd = sd,
+    pitch_min = min,
+    pitch_max = max,
+    pitch_median = median,
+    pitch_iqr = iqr,
+    pitch_mad = mad,
+    pitch_CV = coefvar
+  ) %>%
+  mutate_at(c("Study", "Trial", "ID"), factor) %>% 
+  mutate(
+    Diagnosis = factor(Diagnosis, levels = c("schizophrenia", "control")),
+    ID = paste0(ID, Diagnosis), 
+    mean_pause_duration = replace_na(mean_pause_duration, mean(mean_pause_duration, na.rm = TRUE)),
+    n_pauses = replace_na(n_pauses, median(n_pauses, na.rm = TRUE))
+  )
+
+dataset
+write_tsv(dataset, "data/dataset_clean.tsv")
+```
+
+# Understanding the sample using descriptive statistics
+
+Here I describe the dataset in regards to the differences between linguistic markers of neurotypical and schizophrenic speech.
+  - Describing the data set (number of studies, number of participants, age, gender, clinical and cognitive features of the two groups) and assess whether the groups (schizophrenia and controls) are balanced.
+  
+>The groups seem reasonably balanced across diagnoses, though controls are slightly overrepresented.
+  
+```{r metadata_summary}
+datasummary(
+  data = dataset, 
+  formula = Diagnosis * Study ~ (N + Percent()), 
+  type = "categorical",
+  output = "data.frame",
+  fmt = fmt_sprintf("%.1f")
+) %>% rename(Proportion = Percent)
+```
+
+  - Describing the acoustic profile of a schizophrenic voice: which features are different? E.g. People with schizophrenia tend to have high-pitched voice. 
+  
+> A number of features seem to differ between the groups, though large amounts of within-group deviation makes it hard to assess whether these disparities are due to noise. `rate_of_speech` and. rate_of_articulation`, seem promising, both having low coefficients of variance and disparity in mean values.
+
+```{r summarize_dataset}
+coefvar <- function(vals) sd(vals, na.rm = TRUE) / mean(vals, na.rm = TRUE)
+
+datasummary(
+  data = dataset, 
+  formula = All(dataset) * Diagnosis ~ (mean + sd + coefvar), 
+  type = "categorical",
+  output = "data.frame",
+  fmt = fmt_sprintf("%.1f")
+)
+```
+
+# Predicting diagnosis using supervised learning procedures
+
+Here I want to see if I can automatically diagnose schizophrenia from voice alone. To do this, I will proceed in incremental fashion. I will first start by building a simple random forest model, add an optimized version, and then add a third model based on an algorithm I see best fit for this purpose. 
+
+The following packages will be used:
+  
+```{r load_additional_packages}
+pacman::p_load(
+  tidymodels,
+  rsample,
+  parsnip,
+  randomForest,
+  kernlab,
+  yardstick,
+  recipes,
+  workflows,
+  vip
+)
+```
+
+
+## First phase: Random Forest Model
+
+Developing a Random Forest classifier, training it on a curated dataset to establish a baseline for diagnostic accuracy.
+
+  - Splitting the data in training and testing sets
+
+```{r}
+dataset_split <- initial_split(
+  dataset, 
+  prop = 0.7,
+  strata = Diagnosis
+)
+
+training(dataset_split)
+```  
+
+  - Training a random forest model on the training set
+```{r}
+modelling_recipe <- recipe(Diagnosis ~ ., data = training(dataset_split)) %>% 
+  update_role(ID, new_role = "Participant ID") %>% 
+  update_role(Study, Trial, new_role = "Metadata") %>% 
+  update_role(pitch_median, pitch_mad, pitch_sd, pitch_iqr, new_role = "Collinear") # eliminating a number of multicollinear features
+
+rf_workflow <- workflow() %>% 
+  add_model(rand_forest(mode = "classification", engine = "randomForest")) %>% 
+  add_recipe(modelling_recipe)
+
+rf_fit <- rf_workflow %>% fit(training(dataset_split))
+rf_fit
+```
+
+  - Testing the model's predictions on the testing set
+  
+```{r}
+predicted <- testing(dataset_split) %>%
+  mutate(
+    Predicted = predict(rf_fit, new_data = testing(dataset_split))$.pred_class,
+    Prob_Control = predict(rf_fit, new_data = testing(dataset_split), type = "prob")$.pred_control %>% round(2)
+  )
+predicted %>% select(Diagnosis, Predicted, Prob_Control)
+```
+
+  - Building the confusion matrix
+  
+```{r}
+conf_mat(
+  predicted, 
+  truth = Diagnosis, 
+  estimate = Predicted
+)
+```
+
+  - Compiling performance metrics.
+  
+```{r}
+selected_performance_metrics <- metric_set(accuracy, sens, spec, mcc, roc_auc, pr_auc)
+
+selected_performance_metrics(
+  predicted, 
+  truth = Diagnosis, 
+  estimate = Predicted,
+  Prob_Control
+) %>% 
+  select(c(.metric, .estimate)) %>% 
+  column_to_rownames(".metric") %>% 
+  round(2)
+```
+
+```{r}
+rf_fit %>% extract_fit_parsnip() %>% vip(num_features = ncol(dataset_split) - 1)
+```
+
+## Second phase: Forest Engineering
+
+Enhancing the Random Forest model through feature normalization and hyperparameter tuning, aiming to refine predictive performance.
+
+```{r optimize_model}
+dataset_split <- initial_validation_split(
+  dataset, 
+  prop = c(0.7, 0.15),
+  strata = Diagnosis
+)
+
+modelling_recipe <- modelling_recipe %>% 
+  step_normalize(all_numeric_predictors(), -starts_with("n_"), -all_outcomes()) %>% 
+  step_naomit(n_pauses)
+
+rf_workflow_tune <- workflow() %>% 
+  add_model(rand_forest(
+    mode = "classification", 
+    engine = "randomForest",
+    trees = tune(),
+    min_n = tune()
+  )) %>% 
+  add_recipe(modelling_recipe)
+
+tripartite_rf_results <- tune_grid(
+  rf_workflow_tune, 
+  vfold_cv(validation(dataset_split)), 
+  grid = grid_max_entropy(extract_parameter_set_dials(rf_workflow_tune), size = 10)
+)
+tripartite_rf_results %>% collect_metrics()
+```
+
+
+```{r}
+selected_fit <- last_fit(
+  finalize_workflow(rf_workflow_tune, select_best(tripartite_rf_results, "roc_auc")), 
+  dataset_split, 
+  add_validation_set = FALSE
+)
+
+predicted <- testing(dataset_split) %>%
+  mutate(
+    Predicted = collect_predictions(selected_fit, new_data = testing(dataset_split))$.pred_class,
+    Prob_Control = collect_predictions(selected_fit, new_data = testing(dataset_split), type = "prob")$.pred_control %>% 
+      round(2)
+  )
+```
+
+
+
+```{r}
+conf_mat(
+  predicted, 
+  truth = Diagnosis, 
+  estimate = Predicted
+)
+
+selected_performance_metrics(
+  predicted, 
+  truth = Diagnosis, 
+  estimate = Predicted,
+  Prob_Control
+) %>% 
+  select(c(.metric, .estimate)) %>% 
+  column_to_rownames(".metric") %>% 
+  round(2)
+```
+
+
+
+```{r}
+model_metrics <- bind_rows(
+selected_performance_metrics(
+    collect_predictions(last_fit(rf_workflow, dataset_split, add_validation_set = FALSE)), 
+    truth = Diagnosis, 
+    estimate = .pred_class, 
+    .pred_control
+  ) %>% mutate(model = factor("Default Random Forest")),
+selected_performance_metrics(
+    collect_predictions(selected_fit), 
+    truth = Diagnosis, 
+    estimate = .pred_class, 
+    .pred_control
+  ) %>% mutate(
+    model = factor("Hyperparameter tuning, normalization")
+  )
+) %>% 
+  mutate(.metric = factor(.metric, ordered = TRUE)) %>% 
+  select(!.estimator)
+
+model_metrics
+
+ggplot(model_metrics) +
+  geom_point(aes(.estimate, .metric, color = model), position = position_dodge(width = 0.4), size = 3) +
+  geom_linerange(aes(xmin = 0, xmax = .estimate, y = .metric, color = model), position = position_dodge(width = 0.4)) +
+  coord_cartesian(xlim = c(0, 1)) +
+  scale_y_discrete(
+    limits = rev(c("accuracy", "sens", "spec", "mcc", "roc_auc", "pr_auc")), 
+    labels = rev(c("Acc.", "Sens.", "Spec.", "MCC", "ROC AUC", "PR AUC"))
+  ) +
+  labs(title = "Model Performance Metric Evaluation", x = "", y = "Metric\n", ) +
+  theme(legend.position = "top", panel.grid.major.y = element_blank(), axis.title.y = element_text(angle=0, vjust=1)) +
+  guides(color = guide_legend(title = "Model"))
+```
+
+## Third phase: Another Algorithm
+
+Integrated a Support Vector Machine model to compare and contrast with the Random Forest approach, providing a comprehensive view of model efficacy.
+```{r new_model}
+rf_workflow_svm <- workflow() %>% 
+  add_model(svm_poly(
+    mode = "classification", 
+    engine = "kernlab"
+  )) %>% 
+  add_recipe(modelling_recipe)
+
+rf_fit <- rf_workflow_svm %>% fit(training(dataset_split))
+
+model_metrics <- bind_rows(
+selected_performance_metrics(
+    collect_predictions(last_fit(rf_workflow, dataset_split, add_validation_set = FALSE)), 
+    truth = Diagnosis, 
+    estimate = .pred_class, 
+    .pred_control
+  ) %>% mutate(model = factor("Default Random Forest")),
+selected_performance_metrics(
+    collect_predictions(selected_fit), 
+    truth = Diagnosis, 
+    estimate = .pred_class, 
+    .pred_control
+  ) %>% mutate(
+    model = factor("Support Vector Machine")
+  )
+) %>% 
+  mutate(.metric = factor(.metric, ordered = TRUE)) %>% 
+  select(!.estimator)
+model_metrics
+
+ggplot(model_metrics) +
+  geom_point(aes(.estimate, .metric, color = model), position = position_dodge(width = 0.4), size = 3) +
+  geom_linerange(aes(xmin = 0, xmax = .estimate, y = .metric, color = model), position = position_dodge(width = 0.4)) +
+  coord_cartesian(xlim = c(0, 1)) +
+  scale_y_discrete(
+    limits = rev(c("accuracy", "sens", "spec", "mcc", "roc_auc", "pr_auc")), 
+    labels = rev(c("Acc.", "Sens.", "Spec.", "MCC", "ROC AUC", "PR AUC"))
+  ) +
+  labs(title = "Model Performance Metric Evaluation", x = "", y = "Metric\n", ) +
+  theme(legend.position = "top", panel.grid.major.y = element_blank(), axis.title.y = element_text(angle=0, vjust=1)) +
+  guides(color = guide_legend(title = "Model"))
+```
+
+# Discussion: Methodology and Results
+Reflecting on the nuanced interplay between feature engineering, model complexity, and diagnostic accuracy, highlighting the challenges and potential of using vocal characteristics in schizophrenia diagnosis.
+
+> The feature engineering and hyperparameter tuning did not seem to noticably improve the performance of the classfication model. In fact, when it marginally improves on the default model in one metric, e.g. sensitivity, it tends to sacrifice/worsen others. 
+> None of the models were particularly useful in a clinical context (at least as stand-alone tool), as they failed to improve more than moderately on the baseline accuracy of ~50%, with all models maxing out around 65%.
+
+> The actual baseline accuracy for this dataset might be 52.5%, as this is the accuracy that would be achieved if one just predicted "control" for all cases, although that would reveal itself in disparity between sensitivity and specificity.
+
+> One could make a cautious interpretation that trends in voice pitch should be ascribed greater weight than other more basic measures of articulation.
